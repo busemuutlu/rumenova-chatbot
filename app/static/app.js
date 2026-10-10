@@ -93,10 +93,10 @@ function renderInitialFlow(data) {
       const wixUrl = `https://busemutlubg.wixstudio.com/rumenova/ongorusme?session_token=${sessionToken}`;
       appendBotOptions(`
         <a href="${wixUrl}" target="_top" class="btn-primary-action" style="margin-top:14px; text-decoration:none;">
-          <i class="fa-solid fa-arrow-up-right-from-square"></i> İletişim Formunu Tamamla
+          <i class="fa-solid fa-arrow-up-right-from-square"></i> Ön Görüşme Formunu Tamamla
         </a>
         <p style="font-size:0.75rem; color:var(--color-text-muted); text-align:center; margin-top:8px;">
-          * Ön görüşme özetinizi onayladınız. Lütfen iletişim formuna geçerek süreci tamamlayın.
+          * Ön görüşme özetinizi onayladınız. Lütfen ön görüşme formuna geçerek süreci tamamlayın.
         </p>
       `);
       return;
@@ -487,7 +487,7 @@ function updateMediaUploadUI(container) {
   let html = `
     <div class="media-upload-container">
       <p style="font-size:0.8rem; color:var(--color-text-muted); margin-bottom:10px;">
-        Desteklenen: JPG, PNG, WEBP (Maksimum 5 görsel, dosya başı 5MB)
+        Desteklenen: JPG, PNG, WEBP (Maksimum 3 görsel, dosya başı 5MB)
       </p>
 
       <div style="display:flex; gap:8px; justify-content:center; flex-wrap:wrap; margin-bottom:10px;">
@@ -538,8 +538,8 @@ async function handleImageSelected(event) {
   if (statusEl) statusEl.style.display = "block";
 
   for (const file of files) {
-    if (uploadedImages.length >= 5) {
-      alert("En fazla 5 görsel yükleyebilirsiniz.");
+    if (uploadedImages.length >= 3) {
+      alert("En fazla 3 görsel yükleyebilirsiniz.");
       break;
     }
     const formData = new FormData();
@@ -703,14 +703,14 @@ async function handleApproveBrief() {
     const data = await res.json();
     if (data.success) {
       setTimeout(() => {
-        appendBotMessage("Ön görüşme özetinizi onayladınız. Bilgilerinizin seçtiğiniz mimara/ofise iletilebilmesi için iletişim formunu tamamlayın. Seçtiğiniz görüşme saati, mimarın/ofisin teyidinden sonra kesinleşecektir.");
+        appendBotMessage("Ön görüşme özetinizi onayladınız. Bilgilerinizin seçtiğiniz mimara/ofise iletilebilmesi için ön görüşme formunu tamamlayın. Seçtiğiniz görüşme saati, mimarın/ofisin teyidinden sonra kesinleşecektir.");
 
         const wixRedirectHtml = `
           <a href="${data.wix_contact_url}" target="_top" class="btn-primary-action" style="margin-top:14px; text-decoration:none;">
-            <i class="fa-solid fa-arrow-up-right-from-square"></i> İletişim Formunu Tamamla
+            <i class="fa-solid fa-arrow-up-right-from-square"></i> Ön Görüşme Formunu Tamamla
           </a>
           <p style="font-size:0.75rem; color:var(--color-text-muted); text-align:center; margin-top:8px;">
-            * Butona bastığınızda Wix internet sitemizdeki güvenli iletişim sayfasına yönlendirileceksiniz.
+            * Ön görüşme özetinizi onayladınız. Lütfen ön görüşme formuna geçerek süreci tamamlayın.
           </p>
         `;
         appendBotOptions(wixRedirectHtml);
