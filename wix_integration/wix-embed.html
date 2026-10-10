@@ -1,0 +1,21 @@
+<!--
+  ==============================================================
+  RUMENOVA NOVA CHATBOT - WIX ENTEGRASYON KODLARI
+  ==============================================================
+-->
+
+<!-- SEÇENEK A: SAĞ ALT KÖŞEDE AÇILIR-KAPANIR CHATBOT BUTONU (ÖNERİLEN) -->
+<!-- Wix Dashboard > Ayarlar > Özel Kod (Custom Code) kısmına "Body - Son" olarak ekleyin: -->
+<script src="http://127.0.0.1:5000/static/widget.js"></script>
+
+
+<!-- SEÇENEK B: SAYFA İÇİNE GÖMÜLÜ CHATBOT PENCERESİ -->
+<!-- Wix Editör > (+) Ekle > Gömülü Kod > HTML Öğesi içine yapıştırın: -->
+<div style="width: 100%; max-width: 440px; height: 640px; margin: 0 auto; border-radius: 20px; overflow: hidden; box-shadow: 0 12px 40px rgba(0,0,0,0.5);">
+  <iframe 
+    src="http://127.0.0.1:5000/" 
+    style="width: 100%; height: 100%; border: none; border-radius: 20px;" 
+    allow="microphone; camera"
+    title="Nova Mimari Ön Görüşme Chatbotu">
+  </iframe>
+</div>

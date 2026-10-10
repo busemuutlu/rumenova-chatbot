@@ -1,0 +1,30 @@
+import { fetch } from 'wix-fetch';
+
+// API Sunucu Adresiniz
+const API_BASE_URL = "http://127.0.0.1:5000"; // Canlıya aldığınızda: "https://api.rumenova.com"
+
+/**
+ * Wix İletişim Formunu Chatbot Görüşme Kaydıyla Birleştirir (PDF Madde 17)
+ */
+export async function submitWixContactFormWithSession(formData) {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/wix/complete-form`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        session_token: formData.session_token,
+        name: formData.name,
+        email: formData.email,
+        phone: formData.phone,
+        note: formData.note || ""
+      })
+    });
+
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+}

@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="tr">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Nova | Rumenova Mimari Ön Görüşme Chatbotu</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@300;400;500;700&family=Inter:wght@300;400;500;600;700&family=Poppins:wght@300;400;500;600;700&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+
+<body>
+
+  <div class="chatbot-app">
+
+    <!-- HEADER -->
+    <header class="chat-header">
+      <div class="bot-info">
+        <div class="bot-avatar">
+          <svg preserveAspectRatio="xMidYMid meet" data-bbox="20 19.999 160 160.001" viewBox="20 19.999 160 160.001"
+            xmlns="http://www.w3.org/2000/svg" data-type="shape" role="presentation" aria-hidden="true" aria-label="">
+            <g>
+              <path
+                d="M23.061 95.603c-4.081 1.51-4.081 7.283 0 8.793l21.009 7.775a74.07 74.07 0 0 1 43.759 43.759l7.775 21.009c1.51 4.081 7.283 4.081 8.793 0l7.775-21.009a74.07 74.07 0 0 1 43.759-43.759l21.009-7.775c4.081-1.51 4.081-7.283 0-8.793l-21.009-7.775a74.07 74.07 0 0 1-43.759-43.759l-7.775-21.009c-1.511-4.081-7.283-4.081-8.793 0l-7.775 21.009A74.07 74.07 0 0 1 44.07 87.828z">
+              </path>
+            </g>
+          </svg>
+        </div>
+        <div class="bot-details">
+          <h3>nova</h3>
+          <span>Rumenova Ön Görüşme Asistanı</span>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button class="btn-icon-header" onclick="startNewSessionConfirm()" title="Yeni Görüşme Başlat">
+          <i class="fa-solid fa-rotate-right"></i>
+        </button>
+        <button class="btn-icon-header" onclick="closeChatWindow()" title="Kapat">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+    </header>
+
+    <!-- CHAT MESSAGES BODY -->
+    <main class="chat-body" id="chatMessages">
+      <!-- Dinamik olarak JS tarafından sorular ve mesajlar doldurulacak -->
+    </main>
+
+    <!-- FOOTER INPUT FORM -->
+    <footer class="chat-footer">
+      <form id="chatForm" onsubmit="handleSendText(event)" class="chat-input-form">
+        <input type="text" id="chatInput" class="text-input-field" placeholder="Cevabınızı buraya yazın..."
+          autocomplete="off">
+        <button type="submit" class="btn-send" id="sendBtn" title="Gönder">
+          <i class="fa-solid fa-arrow-up"></i>
+        </button>
+      </form>
+    </footer>
+
+  </div>
+
+  <!-- SAKLI VERİLER -->
+  <input type="file" id="imageFileInput" accept="image/png, image/jpeg, image/webp" multiple style="display:none;"
+    onchange="handleImageSelected(event)">
+  <script id="professionalsData"
+    type="application/json">{"experts": {{ experts | tojson }}, "offices": {{ offices | tojson }}}</script>
+  <script src="/static/app.js"></script>
+</body>
+
+</html>

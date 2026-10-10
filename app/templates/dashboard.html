@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Rumenova | Mimar & Yönetici Paneli</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@300;400;500;700&family=Inter:wght@300;400;500;600;700&family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    body {
+      display: block;
+      height: auto;
+      overflow-y: auto;
+      background: #FAF9F7;
+    }
+    .admin-navbar {
+      background: #FFFFFF;
+      border-bottom: 1px solid var(--color-border);
+      padding: 1rem 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .admin-container {
+      max-width: 1200px;
+      margin: 2rem auto;
+      padding: 0 1rem;
+    }
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(41, 34, 34, 0.6);
+      backdrop-filter: blur(4px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+    }
+    .modal-box {
+      background: #FFFFFF;
+      border-radius: var(--radius-lg);
+      padding: 2rem;
+      width: 90%;
+      max-width: 680px;
+      max-height: 85vh;
+      overflow-y: auto;
+      box-shadow: var(--shadow-popup);
+      position: relative;
+    }
+    .close-btn {
+      position: absolute;
+      top: 1.25rem;
+      right: 1.25rem;
+      background: none;
+      border: none;
+      font-size: 1.4rem;
+      cursor: pointer;
+      color: var(--color-text-muted);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ADMIN NAVBAR -->
+  <header class="admin-navbar">
+    <div style="display: flex; align-items: center; gap: 12px;">
+      <div class="bot-avatar" style="width: 36px; height: 36px; font-size: 0.95rem;">R</div>
+      <div>
+        <h2 style="font-size: 1.1rem; color: var(--color-primary); font-weight: 600;">RUMENOVA</h2>
+        <span style="font-size: 0.75rem; color: var(--color-text-muted);">Yönetim & Mimar Portalı</span>
+      </div>
+    </div>
+    <div>
+      <a href="/" class="opt-btn" style="text-decoration: none; padding: 6px 14px; font-size: 0.8rem;">
+        <i class="fa-solid fa-arrow-left"></i> Chatbot Önizlemesine Dön
+      </a>
+    </div>
+  </header>
+
+  <main class="admin-container">
+    
+    <!-- STATS -->
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 2rem;">
+      <div style="background: #fff; padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+        <span style="font-size: 0.8rem; color: var(--color-text-muted);">Tamamlanan Formlar</span>
+        <h3 style="font-size: 1.8rem; color: var(--color-primary); margin-top: 4px;">{{ leads | length }}</h3>
+      </div>
+      <div style="background: #fff; padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+        <span style="font-size: 0.8rem; color: var(--color-text-muted);">Kayıtlı Uzmanlar</span>
+        <h3 style="font-size: 1.8rem; color: var(--color-text); margin-top: 4px;">{{ experts | length }}</h3>
+      </div>
+      <div style="background: #fff; padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+        <span style="font-size: 0.8rem; color: var(--color-text-muted);">Kayıtlı Ofisler</span>
+        <h3 style="font-size: 1.8rem; color: var(--color-text); margin-top: 4px;">{{ offices | length }}</h3>
+      </div>
+    </div>
+
+    <!-- LEADS TABLE -->
+    <div style="background: #fff; border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 1.5rem; box-shadow: var(--shadow-soft);">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem;">
+        <div>
+          <h3 style="font-size: 1.15rem; color: var(--color-primary); font-weight: 600;">
+            <i class="fa-solid fa-file-signature"></i> Gelen Ön Brif ve İletişim Talepleri
+          </h3>
+          <p style="font-size: 0.8rem; color: var(--color-text-muted);">
+            Wix iletişim formunu tamamlamış ve brifini onaylamış müşterilerin talepleri.
+          </p>
+        </div>
+        <button onclick="window.location.reload()" class="opt-btn" style="padding: 6px 14px; font-size: 0.8rem;">
+          <i class="fa-solid fa-rotate-right"></i> Yenile
+        </button>
+      </div>
+
+      <div style="overflow-x: auto;">
+        <table style="width: 100%; border-collapse: collapse; font-size: 0.88rem;">
+          <thead>
+            <tr style="background: #FAF9F7; border-bottom: 2px solid var(--color-border); text-align: left;">
+              <th style="padding: 12px 16px;">Tarih</th>
+              <th style="padding: 12px 16px;">Müşteri İletişim</th>
+              <th style="padding: 12px 16px;">Hizmet Alanı</th>
+              <th style="padding: 12px 16px;">İlgili Uzman / Ofis</th>
+              <th style="padding: 12px 16px;">Talep Saati</th>
+              <th style="padding: 12px 16px;">İşlem</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% if leads %}
+              {% for lead in leads %}
+              <tr style="border-bottom: 1px solid var(--color-border);">
+                <td style="padding: 12px 16px; font-size: 0.8rem; color: var(--color-text-muted);">
+                  {{ lead.form_completed_at or lead.created_at }}
+                </td>
+                <td style="padding: 12px 16px;">
+                  <strong>{{ lead.client_name }}</strong><br>
+                  <span style="font-size: 0.78rem; color: var(--color-text-muted);">{{ lead.client_phone }} • {{ lead.client_email }}</span>
+                </td>
+                <td style="padding: 12px 16px; text-transform: capitalize;">
+                  <span style="background: var(--color-primary-light); color: var(--color-primary); padding: 4px 10px; border-radius: 99px; font-weight: 600; font-size: 0.78rem;">
+                    {{ lead.service_type }}
+                  </span>
+                </td>
+                <td style="padding: 12px 16px;">
+                  <strong>{{ lead.expert_name or lead.office_name or 'Genel Talep' }}</strong>
+                  {% if lead.expert_title %}<br><span style="font-size: 0.75rem; color: var(--color-text-muted);">{{ lead.expert_title }}</span>{% endif %}
+                </td>
+                <td style="padding: 12px 16px; font-size: 0.82rem;">
+                  {{ lead.selected_slot_text or 'Serbest Saat' }}
+                </td>
+                <td style="padding: 12px 16px;">
+                  <button class="btn-primary-action" style="padding: 6px 14px; font-size: 0.78rem; width: auto; margin: 0;"
+                          data-lead-id="{{ lead.id }}" onclick="openLeadModalFromBtn(this)">
+                    <i class="fa-solid fa-eye"></i> Brifi İncele
+                  </button>
+                </td>
+              </tr>
+              {% endfor %}
+            {% else %}
+              <tr>
+                <td colspan="6" style="text-align: center; padding: 2.5rem; color: var(--color-text-muted);">
+                  Henüz tamamlanmış bir talep bulunmuyor. Chatbot üzerinden görüşme başlatıp Wix formunu tamamlayabilirsiniz.
+                </td>
+              </tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- MODAL -->
+  <div class="modal-overlay" id="leadModal">
+    <div class="modal-box">
+      <button class="close-btn" onclick="closeLeadModal()">&times;</button>
+      <h3 style="color: var(--color-primary); font-size: 1.2rem; margin-bottom: 0.25rem;" id="modalClientName">Müşteri Adı</h3>
+      <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 1.25rem;" id="modalClientMeta"></p>
+
+      <div style="background: #FAF9F7; border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem; margin-bottom: 1rem;" id="modalBriefContent"></div>
+
+      <div id="modalImagesContainer" style="margin-bottom: 1rem;"></div>
+
+      <div style="background: var(--color-primary-light); border: 1px solid var(--color-primary); border-radius: var(--radius-md); padding: 1rem;">
+        <h4 style="font-size: 0.9rem; color: var(--color-primary); margin-bottom: 0.5rem;"><i class="fa-solid fa-calendar-check"></i> Randevu Teyidi</h4>
+        <p style="font-size: 0.8rem; color: var(--color-text); margin-bottom: 0.75rem;" id="modalSlotText"></p>
+        <button class="btn-primary-action" style="margin-top:0;" onclick="alert('Randevu durumu teyit edildi ve müşteriye e-posta bildirimi gönderildi.')">
+          <i class="fa-solid fa-check"></i> Randevuyu Müşteriye Teyit Et
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script id="leadsJson" type="application/json">{{ leads | tojson }}</script>
+  <script>
+    function openLeadModalFromBtn(btn) {
+      const leadId = parseInt(btn.getAttribute('data-lead-id'), 10);
+      const leads = JSON.parse(document.getElementById('leadsJson').textContent || '[]');
+      const lead = leads.find(l => l.id === leadId);
+      if (!lead) return;
+
+      document.getElementById('leadModal').style.display = 'flex';
+      document.getElementById('modalClientName').innerText = lead.client_name || 'İsimsiz Talep';
+      document.getElementById('modalClientMeta').innerText = `Telefon: ${lead.client_phone || '-'} | E-posta: ${lead.client_email || '-'} | Tarih: ${lead.form_completed_at || '-'}`;
+      
+      const collected = lead.collected_data || {};
+      let briefHtml = `<h4 style="font-size:0.9rem; color:var(--color-primary); margin-bottom:8px;">Ön Görüşme Brif Yanıtları:</h4><div style="font-size:0.85rem; line-height:1.7;">`;
+      for (let k in collected) {
+        briefHtml += `<div><strong>${k.replace('_', ' ').toUpperCase()}:</strong> ${collected[k]}</div>`;
+      }
+      briefHtml += `</div>`;
+      document.getElementById('modalBriefContent').innerHTML = briefHtml;
+
+      const imgs = lead.uploaded_images || [];
+      let imgHtml = "";
+      if (imgs.length > 0) {
+        imgHtml = `<h4 style="font-size:0.9rem; color:var(--color-primary); margin-bottom:6px;">Referans Görseller (${imgs.length} adet):</h4><div style="display:flex; gap:8px; flex-wrap:wrap;">`;
+        imgs.forEach(i => {
+          imgHtml += `<a href="${i.url}" target="_blank"><img src="${i.url}" style="width:70px; height:70px; object-fit:cover; border-radius:6px; border:1px solid #D9D5D0;"></a>`;
+        });
+        imgHtml += `</div>`;
+      }
+      document.getElementById('modalImagesContainer').innerHTML = imgHtml;
+      document.getElementById('modalSlotText').innerText = `Müşterinin Talep Ettiği Saat: ${lead.selected_slot_text || 'Serbest Saat'}`;
+    }
+
+    function closeLeadModal() {
+      document.getElementById('leadModal').style.display = 'none';
+    }
+  </script>
+</body>
+</html>
