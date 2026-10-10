@@ -401,8 +401,8 @@ def upload_image():
     session = get_or_create_session(token)
     uploaded = session.get("uploaded_images", [])
 
-    if len(uploaded) >= 3:
-        return jsonify({"error": "En fazla 3 görsel yükleyebilirsiniz."}), 400
+    if len(uploaded) >= 5:
+        return jsonify({"error": "En fazla 5 görsel yükleyebilirsiniz."}), 400
 
     unique_filename = f"{uuid.uuid4().hex[:10]}_{secure_filename(file.filename)}"
     file_path = os.path.join(UPLOAD_FOLDER, unique_filename)
@@ -463,7 +463,7 @@ def approve_brief():
     session = get_or_create_session(token)
     chat_msgs = session.get("chat_messages", [])
     chat_msgs.append({"role": "user", "content": "Bilgilerimi onaylıyorum."})
-    chat_msgs.append({"role": "assistant", "content": "Ön görüşme özetinizi onayladınız. Bilgilerinizin seçtiğiniz mimara/ofise iletilebilmesi için ön görüşme formunu tamamlayın. Seçtiğiniz görüşme saati, mimarın/ofisin teyidinden sonra kesinleşecektir."})
+    chat_msgs.append({"role": "assistant", "content": "Ön görüşme özetinizi onayladınız. Bilgilerinizin seçtiğiniz mimara/ofise iletilebilmesi için iletişim formunu tamamlayın. Seçtiğiniz görüşme saati, mimarın/ofisin teyidinden sonra kesinleşecektir."})
 
     update_session(token, {
         "is_brief_approved": 1,
@@ -476,7 +476,7 @@ def approve_brief():
 
     return jsonify({
         "success": True,
-        "message": "Ön görüşme özetinizi onayladınız. Bilgilerinizin seçtiğiniz mimara/ofise iletilebilmesi için ön görüşme formunu tamamlayın.",
+        "message": "Ön görüşme özetinizi onayladınız. Bilgilerinizin seçtiğiniz mimara/ofise iletilebilmesi için iletişim formunu tamamlayın.",
         "wix_contact_url": wix_contact_url,
         "session_token": token
     })
