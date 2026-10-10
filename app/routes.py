@@ -529,7 +529,12 @@ def get_session_wix_summary():
 
     # Proje Brifini metin olarak derle
     collected = session.get("collected_data") or {}
-    brief_lines = []
+    brief_lines = [
+        f"Uzman / Ofis: {expert_name}",
+        f"Hizmet Alanı: {hizmet_alan}",
+        f"Randevu Saati Tercihi: {randevu_tarihi}",
+        "------------------------------------"
+    ]
     field_labels = {
         "konum": "Konum",
         "yaklasik_alan": "Yaklaşık Alan (m²)",
@@ -553,9 +558,10 @@ def get_session_wix_summary():
 
     uploaded_images = session.get("uploaded_images") or []
     if uploaded_images:
-        brief_lines.append(f"• Referans Görseller: {len(uploaded_images)} adet yüklendi")
+        brief_lines.append(f"• Referans Görseller: {len(uploaded_images)} Adet Yüklendi")
 
-    proje_brifi = "\n".join(brief_lines) if brief_lines else "Brif detayları görüşmede aktarılacak."
+    proje_brifi = "\n".join(brief_lines)
+
 
     # Wix Pro Gallery (#gallery1) uyumlu görsel listesi
     base_url = "https://rumenova-chatbot.onrender.com"
