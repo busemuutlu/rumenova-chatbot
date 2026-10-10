@@ -401,8 +401,8 @@ def upload_image():
     session = get_or_create_session(token)
     uploaded = session.get("uploaded_images", [])
 
-    if len(uploaded) >= 5:
-        return jsonify({"error": "En fazla 5 görsel yükleyebilirsiniz."}), 400
+    if len(uploaded) >= 3:
+        return jsonify({"error": "En fazla 3 görsel yükleyebilirsiniz."}), 400
 
     unique_filename = f"{uuid.uuid4().hex[:10]}_{secure_filename(file.filename)}"
     file_path = os.path.join(UPLOAD_FOLDER, unique_filename)
