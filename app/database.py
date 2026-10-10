@@ -289,7 +289,22 @@ def get_or_create_session(session_token=None):
     conn.close()
     return sess
 
+def get_latest_active_session():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT session_token FROM chat_sessions 
+        WHERE status IN ('brif_onaylandi', 'devam_ediyor')
+        ORDER BY updated_at DESC LIMIT 1
+    """)
+    row = cursor.fetchone()
+    conn.close()
+    if row:
+        return get_or_create_session(row["session_token"])
+    return None
+
 def update_session(session_token, updates):
+
     conn = get_db_connection()
     cursor = conn.cursor()
 

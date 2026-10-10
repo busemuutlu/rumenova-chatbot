@@ -7,9 +7,10 @@ from app.services.ai_service import AIService, QUESTION_POOLS, ai_service
 from app.database import (
     get_all_professionals, get_professionals_by_service,
     get_expert_or_office_by_code, get_available_slots,
-    get_or_create_session, update_session, complete_form_submission,
+    get_or_create_session, get_latest_active_session, update_session, complete_form_submission,
     get_all_completed_leads, lead_ekle, tum_leadler
 )
+
 
 main_bp = Blueprint("main", __name__)
 
@@ -481,20 +482,11 @@ def approve_brief():
     })
 
 
-@main_bp.route("/api/session/wix-summary", methods=["GET"])
-def get_session_wix_summary():
-    """
-    Wix Ön Görüşme CMS entegrasyonu için oturum verilerini çeker.
-    Wix CMS kolon adlarıyla birebir uyumlu JSON üretir.
-    """
-    token = request.args.get("session_token")
-    if not token:
-        return jsonify({"success": False, "error": "session_token parametresi gerekli."}), 400
-
-    session = get_or_create_session(token)
+def build_wix_summary_dict(session):
     if not session:
-        return jsonify({"success": False, "error": "Oturum bulunamadı."}), 404
+        return None
 
+    token = session.get("session_token")
     # Seçilen Uzman veya Ofis Adı
     all_profs = get_all_professionals()
     expert_name = "Belirtilmedi"
@@ -562,7 +554,6 @@ def get_session_wix_summary():
 
     proje_brifi = "\n".join(brief_lines)
 
-
     # Wix Pro Gallery (#gallery1) uyumlu görsel listesi
     base_url = "https://rumenova-chatbot.onrender.com"
     gallery_items = []
@@ -581,7 +572,7 @@ def get_session_wix_summary():
         })
         gorsel_linkleri.append(full_url)
 
-    return jsonify({
+    return {
         "success": True,
         "session_token": token,
         "hizmetAlan": hizmet_alan,
@@ -592,7 +583,32 @@ def get_session_wix_summary():
         "gallery_items": gallery_items,
         "gorseller": gorsel_linkleri,
         "collected_data": collected
-    })
+    }
+
+
+@main_bp.route("/api/session/wix-summary", methods=["GET"])
+def get_session_wix_summary():
+    token = request.args.get("session_token")
+    if not token:
+        return jsonify({"success": False, "error": "session_token parametresi gerekli."}), 400
+
+    session = get_or_create_session(token)
+    if not session:
+        return jsonify({"success": False, "error": "Oturum bulunamadı."}), 404
+
+    data = build_wix_summary_dict(session)
+    return jsonify(data)
+
+
+@main_bp.route("/api/session/latest", methods=["GET"])
+def get_latest_session_summary():
+    session = get_latest_active_session()
+    if not session:
+        return jsonify({"success": False, "error": "Aktif oturum bulunamadı."}), 404
+
+    data = build_wix_summary_dict(session)
+    return jsonify(data)
+
 
 
 
