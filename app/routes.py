@@ -557,6 +557,24 @@ def get_session_wix_summary():
 
     proje_brifi = "\n".join(brief_lines) if brief_lines else "Brif detayları görüşmede aktarılacak."
 
+    # Wix Pro Gallery (#gallery1) uyumlu görsel listesi
+    base_url = "https://rumenova-chatbot.onrender.com"
+    gallery_items = []
+    gorsel_linkleri = []
+    for img in uploaded_images:
+        raw_url = img.get("url", "")
+        if raw_url.startswith("http"):
+            full_url = raw_url
+        else:
+            full_url = f"{base_url}{raw_url}"
+        gallery_items.append({
+            "type": "image",
+            "src": full_url,
+            "title": img.get("name", "Referans Görsel"),
+            "description": "Nova Chatbot Üzerinden Yüklenen Proje Görseli"
+        })
+        gorsel_linkleri.append(full_url)
+
     return jsonify({
         "success": True,
         "session_token": token,
@@ -565,8 +583,11 @@ def get_session_wix_summary():
         "randevuTarihi": randevu_tarihi,
         "projeBrifi": proje_brifi,
         "durum": "Randevu Bekliyor",
+        "gallery_items": gallery_items,
+        "gorseller": gorsel_linkleri,
         "collected_data": collected
     })
+
 
 
 @main_bp.route("/api/wix/complete-form", methods=["POST"])
