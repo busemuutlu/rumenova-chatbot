@@ -67,6 +67,7 @@ QUESTION_POOLS = {
             "id": "m_ek_talep",
             "question": "Havuz, teras, balkon veya otopark gibi ek talepleriniz var mı?",
             "field": "ek_talepler",
+            "allow_negative": True,
             "choices": ["Havuz", "Teras / Veranda", "Balkon", "Kapalı Otopark"]
         },
         {
@@ -144,6 +145,7 @@ QUESTION_POOLS = {
             "id": "ic_mobilya",
             "question": "Korunmasını istediğiniz mobilyalar ve eşyalar var mı?",
             "field": "korunacak_mobilyalar",
+            "allow_negative": True,
             "choices": ["Tüm eşyalar sıfırdan seçilecek", "Bazı mobilyalar korunacak"]
         },
         {
@@ -210,6 +212,7 @@ QUESTION_POOLS = {
             "id": "p_korunacak",
             "question": "Korunmasını istediğiniz ağaçlar, bitkiler veya mevcut öğeler var mı?",
             "field": "korunacak_bitkiler",
+            "allow_negative": True,
             "choices": ["Mevcut yetişkin ağaçlar korunsun", "Tamamen sıfırdan planlansın"]
         },
         {
@@ -228,12 +231,14 @@ QUESTION_POOLS = {
             "id": "p_talepler",
             "question": "Oturma, oyun, spor veya yürüyüş alanı gibi talepleriniz var mı?",
             "field": "yapisal_talepler",
+            "allow_negative": True,
             "choices": ["Oturma & Dinlenme Alanı", "Pergola / Kamelya", "Çocuk Oyun Alanı", "Ateş Çukuru & Barbekü"]
         },
         {
             "id": "p_golge",
             "question": "Gölgelendirme, mahremiyet veya dış aydınlatma beklentiniz var mıdır?",
             "field": "aydinlatma_mahremiyet",
+            "allow_negative": True,
             "choices": ["Mahremiyet Çiti", "Dış Mekan Aydınlatması", "Otomatik Sulama"]
         },
         {
@@ -520,7 +525,7 @@ class AIService:
         # 4. Kullanım Amacı / Yapı Türü
         if "villa" in t_lower:
             extracted["kullanim_amaci"] = "Villa"
-        elif "daire" in t_lower or "apartman" in t_lower or "ev" in t_lower:
+        elif re.search(r'\b(daire|apartman|ev|evim|evi)\b', t_lower):
             extracted["kullanim_amaci"] = "Konut / Daire"
         elif "ofis" in t_lower or "işyeri" in t_lower or "iş yeri" in t_lower:
             extracted["kullanim_amaci"] = "Ticari / Ofis"
@@ -542,11 +547,38 @@ class AIService:
         return extracted
 
     @classmethod
-    def get_next_question(cls, service_type, collected_data):
+    def get_question_by_field(cls, service_type, field):
+        """Alan adına göre soru tanımını döner (yoksa None)."""
         pool = QUESTION_POOLS.get(service_type, QUESTION_POOLS["mimari"])
+        for q in pool:
+            if q["field"] == field:
+                return q
+        return None
+
+    @classmethod
+    def get_valid_fields(cls, service_type):
+        """Hizmet alanının soru havuzundaki geçerli alan adları."""
+        pool = QUESTION_POOLS.get(service_type, QUESTION_POOLS["mimari"])
+        return {q["field"] for q in pool}
+
+    @classmethod
+    def is_plain_negative(cls, text):
+        """'yok', 'hayır' gibi düz olumsuz cevap (evet/hayır tipi sorularda geçerli cevaptır)."""
+        return normalize_tr(text.strip()) in [
+            "hayir", "yok", "yoktur", "hayir yok", "yok hayir", "yok gibi",
+            "henuz yok", "yok henuz", "yok maalesef"
+        ]
+
+    @classmethod
+    def get_next_question(cls, service_type, collected_data, skipped_fields=None):
+        pool = QUESTION_POOLS.get(service_type, QUESTION_POOLS["mimari"])
+        skipped = set(skipped_fields or [])
 
         for q in pool:
             field = q["field"]
+            if field in skipped:
+                continue
+
             if field in collected_data and collected_data[field] and str(collected_data[field]).strip() != "":
                 continue
 

@@ -81,6 +81,7 @@ def init_db():
         is_brief_approved INTEGER DEFAULT 0,
         brief_summary TEXT, -- JSON özet
         chat_messages TEXT, -- JSON konuşma geçmişi
+        flow_state TEXT, -- JSON: {"skipped_fields": [...], "estimate_asked": {alan: sayı}}
         -- İletişim Formu Tamamlama Bilgileri
         is_form_completed INTEGER DEFAULT 0,
         client_name TEXT,
@@ -95,6 +96,12 @@ def init_db():
         FOREIGN KEY (selected_office_id) REFERENCES offices (id)
     )
     """)
+
+    # Eski veritabanları için migrasyon: flow_state sütunu yoksa ekle
+    cursor.execute("PRAGMA table_info(chat_sessions)")
+    existing_cols = [r["name"] for r in cursor.fetchall()]
+    if "flow_state" not in existing_cols:
+        cursor.execute("ALTER TABLE chat_sessions ADD COLUMN flow_state TEXT")
 
     # 5. Leads (Temel Müşteri / Talep Tablosu - Yönerge & Yazılım Kontrol)
     cursor.execute("""
@@ -270,6 +277,7 @@ def get_or_create_session(session_token=None):
             sess["uploaded_images"] = json.loads(sess["uploaded_images"]) if sess["uploaded_images"] else []
             sess["chat_messages"] = json.loads(sess["chat_messages"]) if sess["chat_messages"] else []
             sess["brief_summary"] = json.loads(sess["brief_summary"]) if sess["brief_summary"] else {}
+            sess["flow_state"] = _parse_flow_state(sess.get("flow_state"))
             conn.close()
             return sess
 
@@ -286,6 +294,7 @@ def get_or_create_session(session_token=None):
     sess["uploaded_images"] = []
     sess["chat_messages"] = []
     sess["brief_summary"] = {}
+    sess["flow_state"] = _parse_flow_state(None)
     conn.close()
     return sess
 
@@ -311,7 +320,7 @@ def update_session(session_token, updates):
     set_clauses = []
     params = []
     for k, v in updates.items():
-        if k in ["collected_data", "uploaded_images", "chat_messages", "brief_summary"]:
+        if k in ["collected_data", "uploaded_images", "chat_messages", "brief_summary", "flow_state"]:
             set_clauses.append(f"{k} = ?")
             params.append(json.dumps(v, ensure_ascii=False))
         else:
@@ -327,32 +336,90 @@ def update_session(session_token, updates):
     conn.close()
     return True
 
+def _parse_flow_state(raw):
+    """flow_state JSON'unu güvenli şekilde okur ve eksik anahtarları tamamlar."""
+    state = {}
+    if raw:
+        try:
+            state = json.loads(raw) if isinstance(raw, str) else dict(raw)
+        except (ValueError, TypeError):
+            state = {}
+    state.setdefault("skipped_fields", [])
+    state.setdefault("estimate_asked", {})
+    return state
+
 def complete_form_submission(session_token, client_name, client_email, client_phone, client_note=""):
-    """Wix veya harici iletişim sayfasından gelen form verisini oturumla birleştirir."""
+    """
+    Wix veya harici iletişim sayfasından gelen form verisini oturumla birleştirir.
+
+    Seçilen saat form gönderiminde YENİDEN kontrol edilir ve tek bir SQL işlemiyle
+    (is_booked = 0 koşuluyla) rezerve edilir. Dönen sözlük:
+      {"status": "completed", "slot_booked": bool}  -> form kaydedildi
+      {"status": "already_completed"}              -> aynı oturum daha önce tamamlanmış
+      {"status": "slot_unavailable"}               -> saat dolmuş; form kaydedilmedi
+      {"status": "not_found"}                      -> oturum yok
+    """
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("""
-        UPDATE chat_sessions 
-        SET client_name = ?,
-            client_email = ?,
-            client_phone = ?,
-            client_form_note = ?,
-            is_form_completed = 1,
-            status = 'form_tamamlandi',
-            form_completed_at = CURRENT_TIMESTAMP,
-            updated_at = CURRENT_TIMESTAMP
-        WHERE session_token = ?
-    """, (client_name, client_email, client_phone, client_note, session_token))
-    
-    # Seçilen saati rezerve et
-    cursor.execute("SELECT selected_slot_id FROM chat_sessions WHERE session_token = ?", (session_token,))
-    row = cursor.fetchone()
-    if row and row["selected_slot_id"]:
-        cursor.execute("UPDATE available_slots SET is_booked = 1 WHERE id = ?", (row["selected_slot_id"],))
+    try:
+        # Yarış durumlarına karşı yazma kilidi al
+        cursor.execute("BEGIN IMMEDIATE")
 
-    conn.commit()
-    conn.close()
-    return True
+        cursor.execute(
+            "SELECT selected_slot_id, selected_expert_id, selected_office_id, is_form_completed "
+            "FROM chat_sessions WHERE session_token = ?", (session_token,)
+        )
+        sess = cursor.fetchone()
+        if not sess:
+            conn.rollback()
+            return {"status": "not_found"}
+
+        if sess["is_form_completed"]:
+            conn.rollback()
+            return {"status": "already_completed"}
+
+        slot_booked = False
+        slot_id = sess["selected_slot_id"]
+        if slot_id:
+            # Saat hâlâ boş mu ve seçilen uzman/ofise mi ait? Aynı sorguda rezerve et.
+            cursor.execute("""
+                UPDATE available_slots SET is_booked = 1
+                WHERE id = ? AND is_booked = 0
+                  AND ((expert_id IS NOT NULL AND expert_id = ?)
+                    OR (office_id IS NOT NULL AND office_id = ?))
+            """, (slot_id, sess["selected_expert_id"], sess["selected_office_id"]))
+            if cursor.rowcount != 1:
+                # Saat dolmuş: seçimi temizle, kullanıcı yeni saat seçsin
+                cursor.execute("""
+                    UPDATE chat_sessions
+                    SET selected_slot_id = NULL, selected_slot_text = NULL,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE session_token = ?
+                """, (session_token,))
+                conn.commit()
+                return {"status": "slot_unavailable"}
+            slot_booked = True
+
+        cursor.execute("""
+            UPDATE chat_sessions
+            SET client_name = ?,
+                client_email = ?,
+                client_phone = ?,
+                client_form_note = ?,
+                is_form_completed = 1,
+                status = 'form_tamamlandi',
+                form_completed_at = CURRENT_TIMESTAMP,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE session_token = ?
+        """, (client_name, client_email, client_phone, client_note, session_token))
+
+        conn.commit()
+        return {"status": "completed", "slot_booked": slot_booked}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 def get_all_completed_leads(expert_id=None, office_id=None):
     """Panel için tamamlanmış talepleri getirir."""

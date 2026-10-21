@@ -33,3 +33,35 @@ GÖREV VE SINIRLARIN (ÇOK ÖNEMLİ):
 6. İletişim tarzın samimi, güven veren, modern ve mimari estetiğe değer veren profesyonel bir tonda olmalıdır.
 """
     NOVA_SYSTEM_PROMPT = BUSINESS_CONTEXT
+
+    # --- Kullanıcıya gösterilen sabit mesajlar (tek yerden yönetilir) ---
+    # Direktif (BUSINESS_CONTEXT madde 4): randevu, uzmanın teyidine tabidir.
+    # Metinler .env üzerinden de geçersiz kılınabilir.
+    MSG_BRIEF_APPROVED = os.getenv(
+        "MSG_BRIEF_APPROVED",
+        "Ön görüşme özetinizi onayladınız. Bilgilerinizin seçtiğiniz mimara/ofise iletilebilmesi için "
+        "iletişim formunu tamamlayın. Seçtiğiniz görüşme saati, mimarın/ofisin teyidine tabidir."
+    )
+    MSG_FORM_COMPLETED_WITH_SLOT = os.getenv(
+        "MSG_FORM_COMPLETED_WITH_SLOT",
+        "Bizi tercih ettiğiniz için teşekkür ederiz. Ön görüşme bilgileriniz seçtiğiniz mimara/ofise iletildi. "
+        "Seçtiğiniz saat sizin için ayrıldı; görüşme saati uzmanın teyidine tabidir."
+    )
+    MSG_FORM_COMPLETED_NO_SLOT = os.getenv(
+        "MSG_FORM_COMPLETED_NO_SLOT",
+        "Bizi tercih ettiğiniz için teşekkür ederiz. Ön görüşme bilgileriniz seçtiğiniz mimara/ofise iletildi. "
+        "Bir görüşme saati seçilmediği için uzman sizinle iletişime geçerek uygun bir saat belirleyecektir."
+    )
+    MSG_SLOT_UNAVAILABLE = os.getenv(
+        "MSG_SLOT_UNAVAILABLE",
+        "Seçtiğiniz görüşme saati artık uygun değil. Lütfen listeden başka bir saat seçip formu tekrar gönderin."
+    )
+    MSG_ESTIMATE_REQUEST = os.getenv(
+        "MSG_ESTIMATE_REQUEST", "Anladım, yaklaşık veya tahmini olarak belirtiniz."
+    )
+    MSG_ESTIMATE_NOTED = os.getenv(
+        "MSG_ESTIMATE_NOTED", "Sorun değil, bu noktayı uzmanla görüşülmek üzere not aldım."
+    )
+    MSG_SKIPPED = os.getenv("MSG_SKIPPED", "Tamam, bu soruyu atlıyorum.")
+    # Uzmanla görüşülecek (bilinmeyen) alanlar için brife yazılan değer
+    VALUE_TO_DISCUSS = os.getenv("VALUE_TO_DISCUSS", "Bilinmiyor – uzmanla görüşülecek")

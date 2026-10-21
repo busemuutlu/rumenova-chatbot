@@ -3,6 +3,7 @@ import uuid
 import json
 from flask import Blueprint, request, jsonify, render_template
 from werkzeug.utils import secure_filename
+from config import Config
 from app.services.ai_service import AIService, QUESTION_POOLS, ai_service
 from app.database import (
     get_all_professionals, get_professionals_by_service,
@@ -90,7 +91,11 @@ def session_init():
 
     next_q = None
     if session.get("service_type") and (session.get("selected_expert_id") or session.get("selected_office_id")):
-        next_q = AIService.get_next_question(session["service_type"], session.get("collected_data", {}))
+        next_q = AIService.get_next_question(
+            session["service_type"],
+            session.get("collected_data", {}),
+            (session.get("flow_state") or {}).get("skipped_fields", [])
+        )
 
     slots = []
     if session.get("selected_expert_id") or session.get("selected_office_id"):
@@ -282,78 +287,100 @@ def session_message():
     collected = session.get("collected_data", {})
     chat_msgs = session.get("chat_messages", [])
 
+    # Alan bazında oturumda tutulan akış durumu (atlanan alanlar, tahmin istenen alanlar)
+    flow_state = session.get("flow_state") or {}
+    skipped_fields = flow_state.setdefault("skipped_fields", [])
+    estimate_asked = flow_state.setdefault("estimate_asked", {})
+    field_key = current_field or "_genel"
+    question_def = AIService.get_question_by_field(service_type, current_field) if current_field else None
+
     # Kullanıcı mesajını ekle
     chat_msgs.append({"role": "user", "content": message_text})
 
     is_skipping = message_text.lower() in ["geç", "gec", "atla", "devam", "bilmiyorum geç", "pas"]
-    asked_for_estimate = data.get("asked_for_estimate", False)
+    notice = None
+    answer_handled = False  # True ise bu mesaj bu alanın cevabı olarak işlendi; ayrıca çıkarım yapılmaz
 
-    # 1. Anlamsız / Saçma Cevap Kontrolü (Örn: 'asdasd', '123123', '????')
-    if not is_skipping and AIService.is_gibberish_or_irrelevant(message_text):
-        bot_reply = "Tam olarak ne demek istediğinizi söyler misiniz?"
-        chat_msgs.append({"role": "assistant", "content": bot_reply})
-        update_session(token, {"chat_messages": chat_msgs})
-        return jsonify({
+    def stay_on_question(reply, extra):
+        """Aynı soruda kalır: yanıtı ve akış durumunu kaydeder."""
+        chat_msgs.append({"role": "assistant", "content": reply})
+        update_session(token, {"chat_messages": chat_msgs, "flow_state": flow_state})
+        payload = {
             "success": True,
-            "reply": bot_reply,
-            "invalid_input": True,
-            "next_question": None,
+            "reply": reply,
+            "next_question": None,  # aynı soruda kal
             "collected_data": collected,
             "is_complete": False
-        })
+        }
+        payload.update(extra)
+        return jsonify(payload)
 
-    # 2. Konum Sorusu İse 81 İl Doğrulaması
-    if current_field == "konum" and not is_skipping:
-        prov, dist = AIService.find_turkey_province_and_district(message_text)
-        if not prov:
-            bot_reply = "Projenizin hangi ilde bulunduğunu öğrenebilir miyim? (Örn: İstanbul, Ankara, İzmir, Muğla vb. 81 ilimizden biri)"
-            chat_msgs.append({"role": "assistant", "content": bot_reply})
-            update_session(token, {"chat_messages": chat_msgs})
-            return jsonify({
-                "success": True,
-                "reply": bot_reply,
-                "retry_location": True,
-                "next_question": None,
-                "collected_data": collected,
-                "is_complete": False
-            })
-        else:
-            if dist:
-                collected["konum"] = f"{prov}, {dist}"
-            else:
-                collected["konum"] = f"{prov}"
+    if is_skipping:
+        # 'Geç' cevabı: değer olarak kaydedilmez; alan 'atlanmış' işaretlenir, soru tekrar sorulmaz
+        if current_field and current_field not in skipped_fields:
+            skipped_fields.append(current_field)
+        answer_handled = True
+        notice = Config.MSG_SKIPPED
+    else:
+        # 1. Anlamsız / Saçma Cevap Kontrolü (Örn: 'asdasd', '123123', '????')
+        if AIService.is_gibberish_or_irrelevant(message_text):
+            return stay_on_question(
+                "Tam olarak ne demek istediğinizi söyler misiniz?",
+                {"invalid_input": True}
+            )
 
-    # 3. Olumsuz / Belirsiz Cevap Kontrolü ('bilmiyorum', 'hayır', 'yok' vb.)
-    is_uncertain = AIService.check_if_uncertain_answer(message_text)
-    if is_uncertain and not is_skipping:
-        bot_reply = "Anladım, yaklaşık veya tahmini olarak belirtiniz."
-        chat_msgs.append({"role": "assistant", "content": bot_reply})
-        update_session(token, {"chat_messages": chat_msgs})
-        return jsonify({
-            "success": True,
-            "reply": bot_reply,
-            "ask_estimate": True,
-            "next_question": None, # aynı soruda kal
-            "collected_data": collected,
-            "is_complete": False
-        })
+        # 2. Evet/hayır tipi sorularda düz 'yok / hayır' geçerli bir cevaptır
+        if (current_field and question_def and question_def.get("allow_negative")
+                and AIService.is_plain_negative(message_text)):
+            collected[current_field] = "Yok"
+            answer_handled = True
 
-    # Son sorulan alanın cevabı (konum harici, konum yukarıda kaydedildi)
-    if current_field and current_field != "konum":
-        collected[current_field] = message_text
+        # 3. Olumsuz / Belirsiz Cevap ('bilmiyorum' vb.): önce tahmin iste, tekrar ederse uzmana bırak
+        elif AIService.check_if_uncertain_answer(message_text):
+            if not estimate_asked.get(field_key):
+                estimate_asked[field_key] = True
+                return stay_on_question(Config.MSG_ESTIMATE_REQUEST, {"ask_estimate": True})
 
-    # Çoklu bilgi çıkarma (Madde 6)
-    extra_extracted = AIService.extract_info_from_message(message_text, collected)
-    for k, v in extra_extracted.items():
-        if k not in collected or not collected[k]:
-            collected[k] = v
+            # İkinci kez belirsiz cevap: döngüye girme, uzmanla görüşülecek şekilde not al
+            if current_field:
+                collected[current_field] = Config.VALUE_TO_DISCUSS
+            answer_handled = True
+            notice = Config.MSG_ESTIMATE_NOTED
 
-    # Sonraki tek soru (Cevaplanmış sorular atlanır!)
-    next_q = AIService.get_next_question(service_type, collected)
+        # 4. Konum Sorusu İse 81 İl Doğrulaması
+        elif current_field == "konum":
+            prov, dist = AIService.find_turkey_province_and_district(message_text)
+            if not prov:
+                return stay_on_question(
+                    "Projenizin hangi ilde bulunduğunu öğrenebilir miyim? (Örn: İstanbul, Ankara, İzmir, Muğla vb. 81 ilimizden biri)",
+                    {"retry_location": True}
+                )
+            collected["konum"] = f"{prov}, {dist}" if dist else f"{prov}"
+
+        # Son sorulan alanın cevabı (konum yukarıda kaydedildi)
+        elif current_field:
+            collected[current_field] = message_text
+
+    # Cevabı alınan alan için tahmin sayıcısını sıfırla
+    if answer_handled or current_field:
+        estimate_asked.pop(field_key, None)
+
+    # Çoklu bilgi çıkarma (Madde 6): yalnızca bu hizmet alanının soru havuzundaki alanlar,
+    # atlanmış veya 'uzmanla görüşülecek' işaretli cevaplar üzerine yazılmaz
+    if not answer_handled:
+        valid_fields = AIService.get_valid_fields(service_type)
+        extra_extracted = AIService.extract_info_from_message(message_text, collected)
+        for k, v in extra_extracted.items():
+            if k in valid_fields and k not in skipped_fields and (k not in collected or not collected[k]):
+                collected[k] = v
+
+    # Sonraki tek soru (Cevaplanmış ve atlanmış sorular geçilir!)
+    next_q = AIService.get_next_question(service_type, collected, skipped_fields)
 
     updates = {
         "collected_data": collected,
-        "chat_messages": chat_msgs
+        "chat_messages": chat_msgs,
+        "flow_state": flow_state
     }
 
     if next_q:
@@ -364,6 +391,7 @@ def session_message():
         return jsonify({
             "success": True,
             "reply": bot_reply,
+            "notice": notice,
             "next_question": next_q,
             "collected_data": collected,
             "is_complete": False
@@ -382,6 +410,7 @@ def session_message():
         return jsonify({
             "success": True,
             "reply": bot_reply,
+            "notice": notice,
             "next_question": None,
             "collected_data": collected,
             "is_complete": True,
@@ -463,7 +492,7 @@ def approve_brief():
     session = get_or_create_session(token)
     chat_msgs = session.get("chat_messages", [])
     chat_msgs.append({"role": "user", "content": "Bilgilerimi onaylıyorum."})
-    chat_msgs.append({"role": "assistant", "content": "Ön görüşme özetinizi onayladınız. Bilgilerinizin seçtiğiniz mimara/ofise iletilebilmesi için iletişim formunu tamamlayın. Seçtiğiniz görüşme saati, mimarın/ofisin teyidinden sonra kesinleşecektir."})
+    chat_msgs.append({"role": "assistant", "content": Config.MSG_BRIEF_APPROVED})
 
     update_session(token, {
         "is_brief_approved": 1,
@@ -476,7 +505,7 @@ def approve_brief():
 
     return jsonify({
         "success": True,
-        "message": "Ön görüşme özetinizi onayladınız. Bilgilerinizin seçtiğiniz mimara/ofise iletilebilmesi için iletişim formunu tamamlayın.",
+        "message": Config.MSG_BRIEF_APPROVED,
         "wix_contact_url": wix_contact_url,
         "session_token": token
     })
@@ -552,6 +581,11 @@ def build_wix_summary_dict(session):
     if uploaded_images:
         brief_lines.append(f"• Referans Görseller: {len(uploaded_images)} Adet Yüklendi")
 
+    skipped_fields = (session.get("flow_state") or {}).get("skipped_fields", [])
+    if skipped_fields:
+        skipped_labels = [field_labels.get(f, f.replace("_", " ").title()) for f in skipped_fields]
+        brief_lines.append(f"• Atlanan Sorular: {', '.join(skipped_labels)}")
+
     proje_brifi = "\n".join(brief_lines)
 
     # Wix Pro Gallery (#gallery1) uyumlu görsel listesi
@@ -624,11 +658,37 @@ def wix_complete_form():
     if not token or not client_name or not client_phone:
         return jsonify({"error": "Eksik form bilgileri."}), 400
 
-    complete_form_submission(token, client_name, client_email, client_phone, client_note)
+    result = complete_form_submission(token, client_name, client_email, client_phone, client_note)
+    status = result.get("status")
 
+    if status == "not_found":
+        return jsonify({"success": False, "error": "Oturum bulunamadı."}), 404
+
+    if status == "slot_unavailable":
+        session = get_or_create_session(token)
+        slots = get_available_slots(
+            expert_id=session.get("selected_expert_id"),
+            office_id=session.get("selected_office_id")
+        )
+        return jsonify({
+            "success": False,
+            "error": "slot_unavailable",
+            "message": Config.MSG_SLOT_UNAVAILABLE,
+            "available_slots": slots
+        }), 409
+
+    if status == "already_completed":
+        return jsonify({
+            "success": True,
+            "already_completed": True,
+            "message": Config.MSG_FORM_COMPLETED_WITH_SLOT
+        })
+
+    message = Config.MSG_FORM_COMPLETED_WITH_SLOT if result.get("slot_booked") else Config.MSG_FORM_COMPLETED_NO_SLOT
     return jsonify({
         "success": True,
-        "message": "Bizi tercih ettiğiniz için teşekkür ederiz. Ön görüşme bilgileriniz seçtiğiniz mimara/ofise iletildi. Görüşme saatiniz, uzman tarafından teyit edildikten sonra kesinleşecektir."
+        "slot_booked": bool(result.get("slot_booked")),
+        "message": message
     })
 
 

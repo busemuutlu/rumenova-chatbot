@@ -443,6 +443,11 @@ async function handleUserAnswer(answerText) {
 
       askedForEstimate = false;
 
+      // Atlandı / 'uzmanla görüşülecek' bilgilendirmesi
+      if (data.notice) {
+        appendBotMessage(data.notice);
+      }
+
       if (data.next_question) {
         setTimeout(() => {
           displayQuestion(data.next_question);
@@ -703,7 +708,7 @@ async function handleApproveBrief() {
     const data = await res.json();
     if (data.success) {
       setTimeout(() => {
-        appendBotMessage("Ön görüşme özetinizi onayladınız. Bilgilerinizin seçtiğiniz mimara/ofise iletilebilmesi için ön görüşme formunu tamamlayın. Seçtiğiniz görüşme saati, mimarın/ofisin teyidinden sonra kesinleşecektir.");
+        appendBotMessage(data.message);
 
         const wixRedirectHtml = `
           <a href="${data.wix_contact_url}" target="_top" class="btn-primary-action" style="margin-top:14px; text-decoration:none;">
