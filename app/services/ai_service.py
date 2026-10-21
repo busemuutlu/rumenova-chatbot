@@ -583,7 +583,7 @@ class AIService:
 
                 chat_completion = client.chat.completions.create(
                     messages=messages,
-                    model="llama-3.1-8b-instant",
+                    model="openai/gpt-oss-120b",
                     temperature=0.6,
                     max_tokens=600
                 )
