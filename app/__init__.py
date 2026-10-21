@@ -8,7 +8,7 @@ def create_app(config_class=Config):
     app.config.from_object(config_class)
 
     # Wix ve harici sitelerden API istekleri gelebilmesi için tam CORS desteği
-    CORS(app, resources={r"/api/*": {"origins": "*"}})
+    CORS(app)
 
     # Wix iframe gömmelerine izin veren güvenlik başlıkları
     @app.after_request
