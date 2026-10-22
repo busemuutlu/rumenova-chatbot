@@ -322,6 +322,17 @@ def session_message():
         answer_handled = True
         notice = Config.MSG_SKIPPED
     else:
+        # 0. Doğrudan Yapay Zekâ İletişimi (Komut: /ai, /sor, @nova veya Serbest Soru)
+        is_direct_ai, ai_query = AIService.is_free_question_or_command(message_text)
+        if is_direct_ai:
+            current_q_text = question_def.get("question") if question_def else None
+            ai_reply = ai_service.serbest_sohbet_yaniti(
+                soru=ai_query,
+                mevcut_soru=current_q_text,
+                service_type=service_type,
+                gecmis=chat_msgs
+            )
+            return stay_on_question(ai_reply, {"is_ai_chat": True})
         # 1. Anlamsız / Saçma Cevap Kontrolü (Örn: 'asdasd', '123123', '????')
         if AIService.is_gibberish_or_irrelevant(message_text):
             return stay_on_question(

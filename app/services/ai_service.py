@@ -451,6 +451,91 @@ DİYALOG KURALLARI:
             return f"Anladım, not aldım. Peki {next_q['question']}"
         return "Harika, projenizle ilgili tüm detayları not aldım. Dilerseniz uzman mimarımızla randevu oluşturabiliriz."
 
+    @classmethod
+    def is_free_question_or_command(cls, text):
+        """
+        Kullanıcının form akışı yerine doğrudan yapay zekaya bir soru sorduğunu
+        veya komut (/ai, /sor, @nova vb.) kullandığını tespit eder.
+        Döner: (bool, temizlenmiş_metin)
+        """
+        if not text:
+            return False, ""
+        t = str(text).strip()
+        t_lower = t.lower()
+
+        # 1. Özel Komut Kontrolü (/ai, /sor, /chat, /nova, @nova, nova:)
+        cmd_prefixes = ["/ai", "/sor", "/chat", "/nova", "@nova", "nova:"]
+        for p in cmd_prefixes:
+            if t_lower.startswith(p):
+                clean_query = t[len(p):].strip()
+                return True, clean_query if clean_query else t
+
+        # 2. Soru İşareti veya Doğrudan Soru Kalıpları
+        question_words = [
+            "nedir", "nasıl", "ne kadar", "kaç para", "fiyatı", "maliyeti", "ücreti",
+            "tavsiye", "öneri", "önerir misin", "tavsiyen nedir", "fikrin nedir",
+            "siz kimsiniz", "neredesiniz", "iletişim", "yardım edebilir misin",
+            "ne düşünüyorsun", "hangi tarz", "hangisi daha iyi", "ne yapmalıyım",
+            "mümkün mü", "olur mu", "yapabilir miyiz", "yapabilir misiniz",
+            "bilgi almak istiyorum", "bir şey sorabilir miyim", "sorum var"
+        ]
+
+        has_question_mark = "?" in t
+        has_question_word = any(qw in t_lower for qw in question_words)
+
+        if has_question_mark or has_question_word:
+            if len(t) >= 4 and t_lower not in ["evet?", "hayır?", "yok?", "tamam?"]:
+                return True, t
+
+        return False, ""
+
+    def serbest_sohbet_yaniti(self, soru, mevcut_soru=None, service_type="mimari", gecmis=None):
+        """
+        Kullanıcı form dışı bir soru sorduğunda veya doğrudan yapay zekâya danıştığında
+        uzman mimar asistanı gibi yanıt verir, ardından mevcut soruya nazikçe geri bağlar.
+        """
+        if not soru or not str(soru).strip():
+            return "Size nasıl yardımcı olabilirim?"
+
+        if gecmis is None:
+            gecmis = []
+
+        system_prompt = f"""Sen Rumenova Mimarlık'ın samimi, vizyoner ve profesyonel dijital asistanı Nova'sın.
+Kullanıcı şu an bir ön görüşme formunda ilerlerken sana doğrudan bir soru sordu veya danıştı.
+
+GÖREVİN:
+1. Kullanıcının sorusuna bir mimar/iç mimar/peyzaj uzmanı gözüyle kısa, açıklayıcı, samimi ve profesyonel bir yanıt ver (en fazla 2-3 cümle).
+2. Yanıtının sonuna kullanıcının projesine devam edebilmesi için şu cümleyi ekle:
+{f'Bu arada projenize devam etmek isterseniz: "{mevcut_soru}"' if mevcut_soru else 'Projenizle ilgili başka merak ettiğiniz bir detay var mı?'}
+"""
+
+        messages = [{"role": "system", "content": system_prompt}]
+        for msg in gecmis:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            if role in ["user", "assistant"] and content:
+                messages.append({"role": role, "content": content})
+        messages.append({"role": "user", "content": str(soru).strip()})
+
+        if Config.GROQ_API_KEY:
+            try:
+                from groq import Groq
+                client = Groq(api_key=Config.GROQ_API_KEY)
+                chat_completion = client.chat.completions.create(
+                    messages=messages,
+                    model="openai/gpt-oss-120b",
+                    temperature=0.7,
+                    max_tokens=400
+                )
+                return chat_completion.choices[0].message.content.strip()
+            except Exception:
+                pass
+
+        fallback_msg = "Mimari ve tasarım süreçlerimizde her detayı sizin konforunuz ve estetik beklentileriniz doğrultusunda titizlikle planlıyoruz."
+        if mevcut_soru:
+            fallback_msg += f" Dilerseniz projemize kaldığımız yerden devam edelim: {mevcut_soru}"
+        return fallback_msg
+
 class AIServiceError(Exception):
     """Yönerge Modül C: Özel yapay zekâ servis hatası."""
     pass
