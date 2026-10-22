@@ -1,6 +1,9 @@
 import json
+import logging
 import re
 from config import Config
+
+logger = logging.getLogger(__name__)
 
 # PDF MADDE 8, 9, 10 BİREBİR SORU SETLERİ
 QUESTION_POOLS = {
@@ -568,6 +571,134 @@ class AIService:
             "hayir", "yok", "yoktur", "hayir yok", "yok hayir", "yok gibi",
             "henuz yok", "yok henuz", "yok maalesef"
         ]
+
+    @classmethod
+    def _apply_units(cls, field, value):
+        """AI birim eklemeyi unutursa yedek: alan -> m², kullanıcı sayısı -> kişi, bütçe -> TL."""
+        v = (value or "").strip()
+        if not v or not re.search(r'\d', v):
+            return v
+        low = v.lower()
+        if field == "yaklasik_alan" and not re.search(r'm2|m²|metre', low):
+            return f"{v} m²"
+        if field == "kullanici_sayisi" and "kişi" not in low and "kisi" not in low:
+            return f"{v} kişi"
+        if field == "butce_araligi" and not re.search(r'tl|₺|lira|\$|€|usd|eur', low):
+            return f"{v} TL"
+        return v
+
+    @classmethod
+    def evaluate_answer(cls, question_def, answer, collected_data):
+        """
+        Sabit sorunun cevabını AI ile değerlendirir (BUSINESS_CONTEXT kuralları geçerlidir).
+        Dönüş: {"status": valid|invalid|uncertain|side_question, "value": str, "reply": str}
+        AI kapalıysa veya hata verirse None döner; çağıran taraf kural motoruna düşer.
+        """
+        if not (Config.GROQ_API_KEY and Config.AI_ANSWER_VALIDATION):
+            return None
+
+        try:
+            from groq import Groq
+            client = Groq(api_key=Config.GROQ_API_KEY, timeout=Config.AI_TIMEOUT, max_retries=0)
+
+            task = (
+                "GÖREV: Kullanıcıya aşağıdaki SABİT soru soruldu. Kullanıcının cevabını değerlendir.\n"
+                f"Soru: {question_def['question']}\n"
+                f"Alan: {question_def['field']}\n"
+                f"Örnek seçenekler (zorunlu değil): {question_def.get('choices', [])}\n"
+                f"Şimdiye kadar toplanan bilgiler: {json.dumps(collected_data, ensure_ascii=False)}\n"
+                f"Kullanıcının cevabı: {answer}\n\n"
+                "SADECE şu JSON'u döndür, başka metin yazma:\n"
+                '{"status": "valid|invalid|uncertain|side_question", "value": "...", "reply": "..."}\n'
+                "- valid: cevap soruyla ilgili bir bilgi içeriyor. EKSİK, KISMI veya yazım hatalı olsa bile valid say "
+                "(örn. 'malzeme ve renk' sorusuna sadece 'beyaz' demek geçerlidir). value = cevabın kısa, temiz Türkçe hali; "
+                "yazım hatalarını düzelt, kullanıcının söylemediği bilgiyi ekleme. reply boş.\n"
+                "- invalid: SADECE cevap soruyla tamamen ilgisiz, anlamsız (rastgele harf/rakam yığını) veya hiçbir bilgi içermiyorsa. value boş. "
+                "reply = 1 kısa cümleyle nazikçe sebebini söyle ve AYNI soruyu tekrar sor.\n"
+                "- Alan 'konum' ise yalnızca il yeterlidir (ilçe zorunlu değil); value'ya düzeltilmiş il (varsa ilçe) adını yaz.\n"
+                "- Kullanıcı kararı sana bırakıyor veya önceki önerini onaylıyorsa (örn. 'tamam', 'sen bilirsin', 'dediklerin', 'olur', 'sence') "
+                "ve somut bir bilgi vermiyorsa bunu cevap SAYMA: status=invalid; reply = kullanıcıdan kendi tercihini yazmasını "
+                "isteyen 1 kısa cümle (seçenekler varsa say) + AYNI soru. Evet/hayır tipi sorularda açık 'evet' geçerlidir.\n"
+                "- Birimler: yaklasik_alan için value'ya 'm²', kullanici_sayisi için 'kişi', butce_araligi için 'TL' ekle "
+                "(k=bin, m=milyon kısaltmalarını açık yaz, örn. '76k-3m' -> '76.000 - 3.000.000 TL'). Birim zaten varsa tekrar ekleme.\n"
+                "- uncertain: kullanıcı bilmiyor / karar vermemiş / emin değil. value ve reply boş.\n"
+                "- side_question: kullanıcı cevap yerine yan bir soru sordu. value boş. "
+                "reply = yan soruya 1-2 kısa cümleyle cevap (kesin fiyat/süre verme, uydurma) + AYNI soruyu tekrar sor."
+            )
+
+            completion = client.chat.completions.create(
+                messages=[
+                    {"role": "system", "content": Config.BUSINESS_CONTEXT},
+                    {"role": "user", "content": task}
+                ],
+                model=Config.GROQ_MODEL,
+                temperature=0.2,
+                max_tokens=300
+            )
+            raw = completion.choices[0].message.content or ""
+            match = re.search(r'\{.*\}', raw, re.S)
+            if not match:
+                return None
+            data = json.loads(match.group(0))
+
+            status = str(data.get("status", "")).strip().lower()
+            if status not in ("valid", "invalid", "uncertain", "side_question"):
+                return None
+
+            value = str(data.get("value") or "").strip()
+            reply = str(data.get("reply") or "").strip()
+
+            if status == "valid" and not value:
+                value = answer.strip()
+            if status == "valid":
+                value = cls._apply_units(question_def["field"], value)
+            if status in ("invalid", "side_question") and not reply:
+                return None
+
+            return {"status": status, "value": value, "reply": reply}
+        except Exception as e:
+            logger.warning("AI cevap değerlendirme hatası, kural motoruna düşülüyor: %s", e)
+            return None
+
+    @classmethod
+    def chat_after_completion(cls, message, brief_text, history, status_info=""):
+        """
+        Sorular bittikten sonra gelen serbest mesajları BUSINESS_CONTEXT ile cevaplar
+        (örn. 'brifimi tekrar göster'). AI kapalı/hatalı ise None döner.
+        """
+        if not (Config.GROQ_API_KEY and Config.AI_ANSWER_VALIDATION):
+            return None
+
+        try:
+            from groq import Groq
+            client = Groq(api_key=Config.GROQ_API_KEY, timeout=Config.AI_TIMEOUT, max_retries=0)
+
+            context = (
+                Config.BUSINESS_CONTEXT
+                + "\n\nŞU ANKI DURUM: Ön görüşme soruları tamamlandı. Yeni soru sorma. "
+                "Kullanıcının mesajını yalnızca aşağıdaki bilgilere dayanarak 1-3 kısa cümleyle cevapla. "
+                "Brif istenirse bilgileri düzenli ve kısa bir özet olarak yaz. Bilgi uydurma; kesin fiyat, süre veya "
+                "randevu onayı verme. Kullanıcı bir bilgiyi değiştirmek isterse bunu not ettiğini söyle ve "
+                "iletişim formunda uzmana iletebileceğini belirt.\n\n"
+                f"TOPLANAN BRİF:\n{brief_text}\n\n{status_info}"
+            )
+            messages = [{"role": "system", "content": context}]
+            for m in (history or [])[-10:]:
+                if m.get("role") in ("user", "assistant") and m.get("content"):
+                    messages.append({"role": m["role"], "content": m["content"]})
+            messages.append({"role": "user", "content": message})
+
+            completion = client.chat.completions.create(
+                messages=messages,
+                model=Config.GROQ_MODEL,
+                temperature=0.4,
+                max_tokens=500
+            )
+            reply = (completion.choices[0].message.content or "").strip()
+            return reply or None
+        except Exception as e:
+            logger.warning("AI serbest sohbet hatası, sabit mesaja düşülüyor: %s", e)
+            return None
 
     @classmethod
     def get_next_question(cls, service_type, collected_data, skipped_fields=None):

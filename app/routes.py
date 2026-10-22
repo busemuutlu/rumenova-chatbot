@@ -297,6 +297,28 @@ def session_message():
     # Kullanıcı mesajını ekle
     chat_msgs.append({"role": "user", "content": message_text})
 
+    # Sorular bittiyse (örn. onay sonrası) serbest mesajı BUSINESS_CONTEXT'li AI ile cevapla
+    if AIService.get_next_question(service_type, collected, skipped_fields) is None:
+        brief = build_wix_summary_dict(session) or {}
+        status_info = (
+            f"Brif onaylandı mı: {'Evet' if session.get('is_brief_approved') else 'Hayır'}. "
+            f"Seçilen görüşme saati: {session.get('selected_slot_text') or 'henüz seçilmedi'}."
+        )
+        free_reply = AIService.chat_after_completion(
+            message_text, brief.get("projeBrifi", ""), chat_msgs[:-1], status_info
+        )
+        if free_reply:
+            chat_msgs.append({"role": "assistant", "content": free_reply})
+            update_session(token, {"chat_messages": chat_msgs})
+            return jsonify({
+                "success": True,
+                "reply": free_reply,
+                "next_question": None,
+                "collected_data": collected,
+                "is_complete": False,
+                "ai_chat": True
+            })
+
     is_skipping = message_text.lower() in ["geç", "gec", "atla", "devam", "bilmiyorum geç", "pas"]
     notice = None
     answer_handled = False  # True ise bu mesaj bu alanın cevabı olarak işlendi; ayrıca çıkarım yapılmaz
@@ -322,8 +344,54 @@ def session_message():
         answer_handled = True
         notice = Config.MSG_SKIPPED
     else:
+        # 0. AI ile cevap değerlendirme: soru sabit, cevabın uygunluğuna AI karar verir
+        ai_status, ai_value = None, None
+        invalid_counts = flow_state.setdefault("invalid_counts", {})
+
+        # Konum: önce Python (81 il sözlüğü); il bulunursa AI'a sorulmaz
+        python_konum = False
+        if current_field == "konum":
+            p_prov, p_dist = AIService.find_turkey_province_and_district(message_text)
+            if p_prov:
+                python_konum = True
+                ai_status = "valid"
+                ai_value = f"{p_prov}, {p_dist}" if p_dist else p_prov
+
+        skip_ai = (
+            python_konum
+            or not current_field or not question_def
+            or question_def.get("type") == "media_and_notes"
+            or (question_def.get("allow_negative") and AIService.is_plain_negative(message_text))
+        )
+        if not skip_ai:
+            choices_lower = [c.lower() for c in question_def.get("choices", [])]
+            if message_text.lower() in choices_lower:
+                # Hazır seçenek butonu: AI çağrısına gerek yok
+                ai_status, ai_value = "valid", message_text
+            else:
+                ai_result = AIService.evaluate_answer(question_def, message_text, collected)
+                if ai_result:
+                    ai_status, ai_value = ai_result["status"], ai_result["value"]
+                    if ai_status in ("invalid", "side_question"):
+                        if ai_status == "invalid":
+                            invalid_counts[field_key] = invalid_counts.get(field_key, 0) + 1
+                        if ai_status == "invalid" and invalid_counts[field_key] >= Config.AI_MAX_INVALID:
+                            # Döngüye girme: uzmanla görüşülecek şekilde not al
+                            collected[current_field] = Config.VALUE_TO_DISCUSS
+                            answer_handled = True
+                            notice = Config.MSG_ESTIMATE_NOTED
+                            ai_status = "give_up"
+                        else:
+                            # Uygun değil: KAYDETME, aynı soruda kal
+                            return stay_on_question(
+                                ai_result["reply"],
+                                {"invalid_input": ai_status == "invalid", "ai_checked": True}
+                            )
+            if ai_status in ("valid", "give_up"):
+                invalid_counts.pop(field_key, None)
+
         # 1. Anlamsız / Saçma Cevap Kontrolü (Örn: 'asdasd', '123123', '????')
-        if AIService.is_gibberish_or_irrelevant(message_text):
+        if ai_status is None and AIService.is_gibberish_or_irrelevant(message_text):
             return stay_on_question(
                 "Tam olarak ne demek istediğinizi söyler misiniz?",
                 {"invalid_input": True}
@@ -336,7 +404,7 @@ def session_message():
             answer_handled = True
 
         # 3. Olumsuz / Belirsiz Cevap ('bilmiyorum' vb.): önce tahmin iste, tekrar ederse uzmana bırak
-        elif AIService.check_if_uncertain_answer(message_text):
+        elif ai_status == "uncertain" or (ai_status is None and AIService.check_if_uncertain_answer(message_text)):
             if not estimate_asked.get(field_key):
                 estimate_asked[field_key] = True
                 return stay_on_question(Config.MSG_ESTIMATE_REQUEST, {"ask_estimate": True})
@@ -348,8 +416,10 @@ def session_message():
             notice = Config.MSG_ESTIMATE_NOTED
 
         # 4. Konum Sorusu İse 81 İl Doğrulaması
-        elif current_field == "konum":
-            prov, dist = AIService.find_turkey_province_and_district(message_text)
+        elif current_field == "konum" and ai_status != "give_up":
+            prov, dist = AIService.find_turkey_province_and_district(ai_value or message_text)
+            if not prov and ai_value:
+                prov, dist = AIService.find_turkey_province_and_district(message_text)
             if not prov:
                 return stay_on_question(
                     "Projenizin hangi ilde bulunduğunu öğrenebilir miyim? (Örn: İstanbul, Ankara, İzmir, Muğla vb. 81 ilimizden biri)",
@@ -358,12 +428,14 @@ def session_message():
             collected["konum"] = f"{prov}, {dist}" if dist else f"{prov}"
 
         # Son sorulan alanın cevabı (konum yukarıda kaydedildi)
-        elif current_field:
-            collected[current_field] = message_text
+        elif current_field and ai_status != "give_up":
+            collected[current_field] = ai_value or message_text
 
     # Cevabı alınan alan için tahmin sayıcısını sıfırla
     if answer_handled or current_field:
         estimate_asked.pop(field_key, None)
+        # Alan hangi yolla kapanırsa kapansın (geçerli, atla, uzmana bırak) red sayacını temizle
+        flow_state.setdefault("invalid_counts", {}).pop(field_key, None)
 
     # Çoklu bilgi çıkarma (Madde 6): yalnızca bu hizmet alanının soru havuzundaki alanlar,
     # atlanmış veya 'uzmanla görüşülecek' işaretli cevaplar üzerine yazılmaz
