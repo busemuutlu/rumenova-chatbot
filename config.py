@@ -15,12 +15,6 @@ class Config:
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
     AI_PROVIDER = os.getenv("AI_PROVIDER", "groq" if os.getenv("GROQ_API_KEY") else "mock")
-    GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
-    # Sabit soruların cevaplarını AI ile değerlendir (False -> eski kural motoru)
-    AI_ANSWER_VALIDATION = os.getenv("AI_ANSWER_VALIDATION", "True").lower() == "true"
-    AI_TIMEOUT = float(os.getenv("AI_TIMEOUT", "8"))
-    # Aynı soruda bu kadar uygunsuz cevaptan sonra 'uzmanla görüşülecek' diye geçilir
-    AI_MAX_INVALID = int(os.getenv("AI_MAX_INVALID", "2"))
     
     # CORS İzinleri
     CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*")
