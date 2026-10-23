@@ -72,7 +72,26 @@ Panel ve detay sayfası verileri Wix CMS'ten değil, backend'den okur:
 
 ---
 
-## 📊 Adım 5: Mimar ve Yönetici Paneli
+## 💬 Adım 5: Ortak Konuşma Motoru (HTML widget + Wix chatbot kutusu)
+
+İki chatbot da aynı backend akışını kullanır; yalnızca görünümleri farklıdır.
+
+| Chatbot | Kod | Backend adresi |
+|---|---|---|
+| HTML widget (sağ alttaki Nova balonu) | `app/static/app.js` | `POST /api/chat/init`, `POST /api/chat` |
+| Wix ana sayfa sohbet kutusu | [`wix-home-chatbot.js`](wix-home-chatbot.js) (ANA SAYFA Page Code) | aynı |
+
+Akış: serbest sohbet (yapay zekâ) → proje talebi algılanınca brif teklifi (Evet / Şimdilik hayır) → hizmet alanı → uzman → soru listesi → görsel → görüşme saati → brif özeti ve onay → ön görüşme formuna yönlendirme → serbest sohbete dönüş.
+
+- Mesajlar `chat_messages`, düzeltilmiş cevaplar `collected_data`, aşama ve ham cevaplar `flow_state` sütununda tutulur (veritabanı yapısı değişmedi).
+- Brif cevaplarını yapay zekâ (Groq) yorumlar ve yazım hatalarını düzeltir; yapay zekâ yoksa `app/services/normalizer.py` kuralları devreye girer.
+- Wix kutusunda seçenekler numaralı listelenir; kullanıcı numarasını veya cevabını yazar. Görsel yükleme yalnızca HTML widget'tadır.
+- Wix kutusu eleman ID'leri: `#txtCevap`, `#inpSoru`, `#btnSor`, `#button43` (Ön Görüşme Formunu Tamamla; linkine oturum numarası eklenir).
+- Eski `/api/session/*` ve `/api/sohbet` adresleri çalışmaya devam eder.
+
+---
+
+## 📊 Adım 6: Mimar ve Yönetici Paneli
 
 Müşteri Wix formunu gönderdiğinde:
 - İletişim bilgileri + Ön Brif + Seçilen Uygun Randevu Saati + Yüklenen Görseller tek kayıtta birleşir.

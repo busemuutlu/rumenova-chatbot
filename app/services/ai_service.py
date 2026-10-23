@@ -536,6 +536,181 @@ GÖREVİN:
             fallback_msg += f" Dilerseniz projemize kaldığımız yerden devam edelim: {mevcut_soru}"
         return fallback_msg
 
+    # --- Konuşma motoru (/api/chat) için yapay zekâ görevleri ---
+
+    def _llm(self, messages, temperature=0.4, max_tokens=700, json_mode=False):
+        """Groq çağrısı. Anahtar yoksa veya hata olursa None döner (çağıran kural tabanlı yedeğe geçer)."""
+        if not Config.GROQ_API_KEY:
+            return None
+        try:
+            from groq import Groq
+            # Render (gunicorn) isteği 30 sn sonra keser; tek turda en fazla iki çağrı olabilir
+            client = Groq(api_key=Config.GROQ_API_KEY, timeout=12.0, max_retries=0)
+            kwargs = {
+                "messages": messages,
+                "model": "openai/gpt-oss-120b",
+                "temperature": temperature,
+                "max_tokens": max_tokens
+            }
+            if json_mode:
+                kwargs["response_format"] = {"type": "json_object"}
+            chat_completion = client.chat.completions.create(**kwargs)
+            return (chat_completion.choices[0].message.content or "").strip() or None
+        except Exception:
+            return None
+
+    @staticmethod
+    def _parse_json(text):
+        if not text:
+            return None
+        try:
+            return json.loads(text)
+        except ValueError:
+            match = re.search(r"\{.*\}", text, re.S)
+            if match:
+                try:
+                    return json.loads(match.group(0))
+                except ValueError:
+                    return None
+        return None
+
+    @staticmethod
+    def _field_catalog(service_type=None):
+        """Yapay zekâya verilen alan listesi: 'alan_adi: soru' satırları."""
+        services = [service_type] if service_type in QUESTION_POOLS else list(QUESTION_POOLS)
+        lines, seen = [], set()
+        for s in services:
+            for q in QUESTION_POOLS[s]:
+                field = q["field"]
+                if field in seen or q.get("type") == "media_and_notes":
+                    continue
+                seen.add(field)
+                choices = f" (seçenekler: {', '.join(q['choices'])})" if q.get("choices") else ""
+                lines.append(f"- {field}: {q['question']}{choices}")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _history_for_llm(gecmis, limit=12):
+        out = []
+        for msg in (gecmis or [])[-limit:]:
+            role = msg.get("role")
+            content = msg.get("content")
+            if role in ["user", "assistant"] and content:
+                out.append({"role": role, "content": str(content)})
+        return out
+
+    def sohbet_analizi(self, mesaj, gecmis=None, service_type=None, brif_tamamlandi=False, brif_ozeti=None):
+        """
+        Serbest sohbet aşaması: Nova'nın yanıtı + niyet tespiti.
+        Döner: {"yanit": str, "proje_talebi": bool, "hizmet": str|None, "bilgiler": {alan: değer}}
+        Yapay zekâ yoksa None döner.
+        """
+        if brif_tamamlandi:
+            durum = (
+                "Kullanıcının ön görüşme brifi tamamlandı ve onaylandı. Brif özeti:\n"
+                f"{brif_ozeti or '-'}\n"
+                "Kullanıcının sorularını yanıtla. Gerekirse ekrandaki 'Ön Görüşme Formunu Tamamla' "
+                "bağlantısıyla iletişim formunu doldurmasını hatırlat. Yeni brif sorusu sorma; "
+                "proje_talebi alanını false döndür."
+            )
+        else:
+            durum = (
+                "Şu an SERBEST SOHBET aşamasındasın. Kullanıcının sorularını kısaca yanıtla. "
+                "Bu aşamada brif sorularını sen sorma: kullanıcı bir proje talebi belirttiğinde sistem ona "
+                "ön görüşme brifi oluşturmayı ayrıca teklif edecek. proje_talebi true ise yanıtında soru sorma."
+            )
+
+        system_prompt = f"""{Config.BUSINESS_CONTEXT}
+
+AŞAMA BİLGİSİ:
+{durum}
+
+ÇIKTI: Yalnızca şu JSON nesnesini döndür, başka metin yazma:
+{{"yanit": "kullanıcıya gösterilecek kısa Türkçe yanıt", "proje_talebi": true/false, "hizmet": "mimari" | "ic_mimari" | "peyzaj" | null, "bilgiler": {{"alan_adi": "değer"}}}}
+
+- proje_talebi: kullanıcı bir mimari / iç mimari / peyzaj projesi yaptırmak, tasarlatmak, yenilemek veya bir uzmanla ön görüşme yapmak istediğini belli ettiyse true.
+- hizmet: talebin ait olduğu alan (mimari = yeni yapı / bina / restorasyon, ic_mimari = iç mekân düzenleme / tadilat / dekorasyon, peyzaj = bahçe / teras / açık alan). Emin değilsen null.
+- bilgiler: kullanıcının mesajlarında AÇIKÇA verdiği bilgiler; yalnızca aşağıdaki alan adlarıyla. Yazım hatalarını ve Türkçe karakter eksiklerini düzelt (ör. "istnbul" -> "İstanbul"), metrekareyi "150 m²" biçiminde yaz. Verilmeyen bilgiyi yazma, tahmin etme.
+Alan adları:
+{self._field_catalog(service_type)}
+"""
+        messages = [{"role": "system", "content": system_prompt}]
+        messages += self._history_for_llm(gecmis)
+        messages.append({"role": "user", "content": str(mesaj).strip()})
+
+        data = self._parse_json(self._llm(messages, temperature=0.5, max_tokens=900, json_mode=True))
+        if not isinstance(data, dict) or not str(data.get("yanit") or "").strip():
+            return None
+        hizmet = data.get("hizmet")
+        bilgiler = data.get("bilgiler") if isinstance(data.get("bilgiler"), dict) else {}
+        return {
+            "yanit": str(data["yanit"]).strip(),
+            "proje_talebi": bool(data.get("proje_talebi")) and not brif_tamamlandi,
+            "hizmet": hizmet if hizmet in QUESTION_POOLS else None,
+            "bilgiler": {str(k): str(v).strip() for k, v in bilgiler.items() if v not in (None, "", [], {})}
+        }
+
+    def cevabi_yorumla(self, soru, mesaj, service_type, toplanan=None, acik_alanlar=None, gecmis=None):
+        """
+        Brif aşaması: kullanıcının cevabını sorunun bağlamında anlar, yazım hatalarını düzeltir.
+        Döner: {"tur": cevap|belirsiz|atla|yan_soru|anlamsiz, "deger": str|None, "ek_bilgiler": {}, "yanit": str|None}
+        Yapay zekâ yoksa None döner.
+        """
+        choices = soru.get("choices") or []
+        acik = "\n".join(f"- {q['field']}: {q['question']}" for q in (acik_alanlar or [])) or "-"
+        system_prompt = f"""Sen Rumenova'nın ön görüşme asistanı Nova'nın cevap yorumlayıcısısın.
+Kullanıcıya bir brif sorusu soruldu. Görevin kullanıcının cevabını sorunun bağlamında anlamak.
+
+Hizmet alanı: {service_type}
+Soru alanı: {soru.get('field')}
+Soru: {soru.get('question')}
+Seçenekler: {', '.join(choices) if choices else 'yok (serbest cevap)'}
+Şu ana kadar toplanan bilgiler: {json.dumps(toplanan or {}, ensure_ascii=False)}
+Henüz cevaplanmamış diğer alanlar:
+{acik}
+
+ÇIKTI: Yalnızca şu JSON nesnesini döndür:
+{{"tur": "cevap" | "belirsiz" | "atla" | "yan_soru" | "anlamsiz", "deger": "...", "ek_bilgiler": {{}}, "yanit": "..."}}
+
+KURALLAR:
+- tur=cevap: kullanıcı soruya cevap verdi. deger: cevabın düzeltilmiş, kısa ve temiz hali. Yazım hatalarını ve eksik Türkçe karakterleri düzelt (ör. "istnbul kadikoy" -> "İstanbul, Kadıköy"; "modrn" -> "Modern & Minimalist"). Cevap bir seçeneğe karşılık geliyorsa seçeneğin metnini aynen yaz; seçenek dışı bir tercih ise kullanıcının ifadesini düzeltilmiş haliyle yaz. Alan sorularında "150 m²" biçimini kullan. Anlamı değiştirme, bilgi ekleme.
+- Kısa cevapları, yazım hatalı cevapları ve tek başına sayıları anlamsız sayma; soruyla birlikte değerlendir (alan sorusuna "150" = "150 m²").
+- "Hayır", "yok" gibi olumsuz cevaplar geçerli cevaptır: tur=cevap, deger="Yok".
+- tur=belirsiz: "bilmiyorum", "emin değilim", "henüz belli değil", "fark etmez" gibi.
+- tur=atla: "geç", "atla", "paylaşmak istemiyorum".
+- tur=yan_soru: kullanıcı soruyu cevaplamak yerine başka bir şey sordu. yanit: bu soruya 1-2 cümlelik kısa, profesyonel Türkçe yanıt (kesin fiyat / süre verme, bilgi uydurma).
+- tur=anlamsiz: yalnızca cevap gerçekten anlaşılamıyorsa (ör. "asdasd", rastgele harfler).
+- ek_bilgiler: kullanıcı aynı mesajda yukarıdaki cevaplanmamış alanlara ait bilgi de verdiyse {{"alan_adi": "düzeltilmiş değer"}}. Yalnızca listedeki alan adlarını kullan.
+- Kullanılmayan alanlar için null yaz.
+"""
+        messages = [{"role": "system", "content": system_prompt}]
+        messages += self._history_for_llm(gecmis, limit=4)
+        messages.append({"role": "user", "content": str(mesaj).strip()})
+
+        data = self._parse_json(self._llm(messages, temperature=0.1, max_tokens=900, json_mode=True))
+        if not isinstance(data, dict) or data.get("tur") not in ["cevap", "belirsiz", "atla", "yan_soru", "anlamsiz"]:
+            return None
+        if data["tur"] == "cevap" and not str(data.get("deger") or "").strip():
+            return None
+        ek = data.get("ek_bilgiler") if isinstance(data.get("ek_bilgiler"), dict) else {}
+        return {
+            "tur": data["tur"],
+            "deger": str(data.get("deger")).strip() if data.get("deger") else None,
+            "ek_bilgiler": {str(k): str(v).strip() for k, v in ek.items() if v not in (None, "", [], {})},
+            "yanit": str(data.get("yanit")).strip() if data.get("yanit") else None
+        }
+
+    def kisa_yanit(self, soru, gecmis=None):
+        """Brif aşamasında yan soruya kısa yanıt (yapay zekâ yoksa None)."""
+        system_prompt = (
+            f"{Config.BUSINESS_CONTEXT}\n\nKullanıcı ön görüşme brifi sırasında bir yan soru sordu. "
+            "Yalnızca bu soruya 1-2 cümlelik kısa ve profesyonel bir yanıt ver; yeni soru sorma."
+        )
+        messages = [{"role": "system", "content": system_prompt}]
+        messages += self._history_for_llm(gecmis, limit=6)
+        messages.append({"role": "user", "content": str(soru).strip()})
+        return self._llm(messages, temperature=0.6, max_tokens=500)
+
 class AIServiceError(Exception):
     """Yönerge Modül C: Özel yapay zekâ servis hatası."""
     pass
