@@ -53,6 +53,8 @@ MSG_NOT_UNDERSTOOD = "Tam olarak ne demek istediğinizi anlayamadım."
 MSG_CHOOSE = "Lütfen seçeneklerden birini seçin ya da numarasını yazın."
 MSG_SIDE_FALLBACK = "Bu konuyu ön görüşmede uzmanınızla ayrıntılı konuşabilirsiniz."
 MSG_CONTINUE = "Kaldığımız yerden devam edelim:"
+MSG_SESSION_LOST = ("Önceki görüşmemize şu an ulaşamıyorum, sistem yenilenmiş olabilir. Kusura bakmayın; "
+                    "yeni bir görüşme başlattım, kaldığımız yerden tekrar ilerleyebiliriz.")
 
 BRIEF_TOPIC_PREFIXES = ["brif", "randevu", "basvur", "gorusme"]
 BRIEF_ACTION_PREFIXES = ["olustur", "basla", "baslat", "hazirla", "doldur", "almak", "istiyorum", "yapalim",
@@ -145,6 +147,8 @@ class ChatTurn:
     def __init__(self, token=None):
         self.session = get_or_create_session(token)
         self.token = self.session["session_token"]
+        # İstenen oturum veritabanında yok (ör. sunucu yeniden başlayıp SQLite sıfırlandı)
+        self.session_lost = bool(token) and token != self.token
         self.state = self.session.get("flow_state") or {}
         self.state.setdefault("skipped_fields", [])
         self.state.setdefault("estimate_asked", {})
@@ -818,6 +822,16 @@ def chat_turn(data):
     turn = ChatTurn(data.get("session_token"))
     action = data.get("action")
     message = str(data.get("message") or "").strip()[:MAX_MESSAGE_LENGTH]
+
+    if turn.session_lost:
+        # Kayıp oturumun aşamasına ait buton/cevap yeni oturumda anlamsızdır: kullanıcıya söyle, sohbetten başla
+        if message:
+            turn.user(message)
+        turn.say(MSG_SESSION_LOST)
+        turn.enter("sohbet", emit=False)
+        turn.ui["options"] = [_option("Ön görüşme brifi oluştur", "start_brief")]
+        turn.save()
+        return turn.response()
 
     if action:
         turn.handle_action(action, data.get("value"), data.get("label"))

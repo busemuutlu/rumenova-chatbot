@@ -15,7 +15,7 @@
 // "Görsel paylaşmadan devam et" seçeneği çıkar.
 // ==========================================================================
 
-import { local } from 'wix-storage-frontend';
+import { local } from 'wix-storage';
 import wixLocation from 'wix-location';
 
 const API_BASE_URL = "https://rumenova-chatbot.onrender.com";
@@ -120,6 +120,8 @@ async function sendMessage() {
       showText(data.error || "Bir sorun oluştu, lütfen tekrar deneyin.");
       return;
     }
+    // Sunucu oturumu bulamayıp yenisini açtıysa yeni oturum numarasını sakla
+    if (data.session_token && data.session_token !== sessionToken) saveToken(data.session_token);
     render((data.messages || []).map(m => m.content), data.ui);
   } catch (error) {
     console.error("Nova mesajı iletilemedi:", error);

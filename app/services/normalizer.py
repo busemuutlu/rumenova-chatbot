@@ -70,7 +70,7 @@ def _contains_phrase(normalized, phrases):
     return any(f" {p} " in padded for p in phrases)
 
 
-def _fuzzy_word_hit(normalized, keywords, threshold=0.84):
+def _fuzzy_word_hit(normalized, keywords, threshold=0.8):
     """Kelime bazında yazım hatası toleranslı anahtar kelime eşleşmesi."""
     if _contains_phrase(normalized, keywords) or any(k in normalized for k in keywords if " " in k):
         return True

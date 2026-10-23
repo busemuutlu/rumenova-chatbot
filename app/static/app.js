@@ -104,6 +104,8 @@ async function sendToBackend(payload, userText) {
   try {
     const data = await postJSON("/api/chat", { session_token: sessionToken, ...payload });
     typing.remove();
+    // Sunucu oturumu bulamayıp yenisini açtıysa yeni oturum numarasını sakla
+    if (data.session_token && data.session_token !== sessionToken) saveToken(data.session_token);
     if (!data.success) {
       appendBotMessage(data.error || "Bir sorun oluştu, lütfen tekrar deneyin.");
       renderUI(currentUI);
