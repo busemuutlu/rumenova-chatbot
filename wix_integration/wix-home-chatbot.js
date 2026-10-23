@@ -1,9 +1,10 @@
 // ==========================================================================
-// RUMENOVA - ANA SAYFA NOVA CHATBOT KUTUSU (Page Code)
+// RUMENOVA - NOVA CHATBOT KUTUSU (Page Code: ANA SAYFA ve HAKKIMIZDA)
 // ==========================================================================
 // HTML widget ile aynı konuşma motorunu kullanır (/api/chat/init, /api/chat).
 // Mesajlar, brif cevapları ve aşama backend'de (SQLite) tutulur; bu kod
 // yalnızca Nova'nın son yanıtını ve seçenekleri gösterir.
+// Aynı kod iki sayfada da kullanılır; bu sayfalarda HTML widget (Özel Kod) yüklenmez.
 //
 // Eleman ID'leri:
 //   #txtCevap   Nova'nın yanıtı + numaralı seçenekler
