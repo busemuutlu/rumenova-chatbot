@@ -641,6 +641,13 @@ def wix_complete_form():
     result = complete_form_submission(token, *form_args) if token else {"status": "not_found"}
     status = result.get("status")
 
+    if status == "already_completed":
+        # Aynı tarayıcıdan (aynı oturum numarasıyla) başka bir kişi formu doldurdu: önceki kayıt
+        # korunur, bu kişi ayrı talep olarak kaydedilir. Aynı e-posta tekrar gönderimi sayılır.
+        previous = get_or_create_session(token) or {}
+        if (previous.get("client_email") or "").strip().lower() != client_email.lower():
+            status = "not_found"
+
     if status == "not_found":
         # Chatbot'u kullanmadan formu dolduran kişi de panele düşsün
         token = get_or_create_session(None)["session_token"]
