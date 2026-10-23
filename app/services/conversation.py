@@ -10,6 +10,8 @@ Her istek oturumu SQLite'tan okur, işler ve mevcut chat_sessions sütunlarına 
 Aşamalar (flow_state["stage"]):
   sohbet -> onay -> hizmet -> uzman -> ekip -> sorular -> saat -> ozet (-> duzelt) -> tamamlandi
 """
+import re
+
 from config import Config
 from app.database import (
     get_or_create_session, update_session, get_all_professionals,
@@ -51,6 +53,8 @@ MSG_BRIEF_DONE = ("Brifiniz onaylandı. Sizi şimdi ön görüşme formumuza yö
 MSG_EDIT = "Hangi bilgiyi güncellemek istersiniz?"
 MSG_NOT_UNDERSTOOD = "Tam olarak ne demek istediğinizi anlayamadım."
 MSG_CHOOSE = "Lütfen seçeneklerden birini seçin ya da numarasını yazın."
+MSG_NO_SUCH_OPTION = ("Tam olarak ne demek istediğinizi anlayamadım; {sayi} numaralı bir seçenek yok. "
+                      "Lütfen 1-{adet} arasından bir numara yazın ya da cevabınızı kendi cümlelerinizle yazın.")
 MSG_SIDE_FALLBACK = "Bu konuyu ön görüşmede uzmanınızla ayrıntılı konuşabilirsiniz."
 MSG_CONTINUE = "Kaldığımız yerden devam edelim:"
 MSG_SESSION_LOST = ("Önceki görüşmemize şu an ulaşamıyorum, sistem yenilenmiş olabilir. Kusura bakmayın; "
@@ -528,6 +532,12 @@ class ChatTurn:
             self.state["raw_answers"][field] = {"ham": text}
             return self.finish_answer(field)
 
+        digits_only = text.strip().isdigit() and choices and field not in NO_DIGIT_CHOICE_FIELDS
+        if digits_only and not 1 <= int(text.strip()) <= len(choices):
+            # Listede olmayan numara: not alma, soruyu seçeneklerle tekrar sor
+            self.say(MSG_NO_SUCH_OPTION.format(sayi=text.strip(), adet=len(choices)))
+            return self.enter("sorular", emit=False)
+
         result = None
         if exact:
             result = {"tur": "cevap", "deger": text, "ek_bilgiler": {}}
@@ -548,6 +558,9 @@ class ChatTurn:
             source = "secenek"
 
         tur = result["tur"]
+        if tur == "belirsiz" and not re.search(r"[a-zA-ZçğıöşüÇĞİÖŞÜ]", text):
+            # Harf içermeyen girdi ("4", "?", "...") belirsizlik ifadesi değildir; not almadan tekrar sor
+            tur = "anlamsiz"
         if tur == "atla":
             if field not in self.state["skipped_fields"]:
                 self.state["skipped_fields"].append(field)
