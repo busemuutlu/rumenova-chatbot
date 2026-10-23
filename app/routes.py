@@ -511,6 +511,8 @@ def approve_brief():
         "status": "brif_onaylandi",
         "chat_messages": chat_msgs
     })
+    if token:
+        save_brief_snapshot(token)
 
     wix_contact_url = f"https://busemutlubg.wixstudio.com/rumenova/ongorusme?session_token={token}"
 
@@ -631,6 +633,75 @@ def build_wix_summary_dict(session):
     }
 
 
+def save_brief_snapshot(token):
+    """Chatbot'un ürettiği brif çıktısını (panelde gösterilen hali) brief_summary olarak saklar."""
+    session = get_or_create_session(token)
+    summary = build_wix_summary_dict(session)
+    update_session(token, {"brief_summary": {
+        "hizmetAlan": summary["hizmetAlan"],
+        "seilenUzman": summary["seilenUzman"],
+        "randevuTarihi": summary["randevuTarihi"],
+        "projeBrifi": summary["projeBrifi"],
+        "gallery_items": summary["gallery_items"],
+        "collected_data": summary["collected_data"]
+    }})
+
+
+# Panelde gösterilen durum metinleri (chat_sessions.status -> Wix paneli "durum")
+LEAD_STATUS_LABELS = {
+    "form_tamamlandi": "Randevu Bekliyor",
+    "uzman_onayladi": "Onaylandı",
+    "reddedildi": "Reddedildi"
+}
+
+
+def format_panel_lead(lead):
+    """Tamamlanmış talebi Wix yönetim paneli / detay sayfası alan adlarıyla döner."""
+    brief = lead.get("brief_summary") or build_wix_summary_dict(lead)
+
+    ad = lead.get("client_ad")
+    soyad = lead.get("client_soyad")
+    if ad is None and soyad is None:
+        # Ad/soyad kolonlarından önceki kayıtlar: birleşik isim son boşluktan bölünür
+        parts = (lead.get("client_name") or "").rsplit(" ", 1)
+        ad, soyad = parts[0], (parts[1] if len(parts) > 1 else "")
+
+    created = lead.get("form_completed_at") or lead.get("created_at") or ""
+    return {
+        "_id": str(lead["id"]),
+        "title": f"talep-{lead['id']:03d}",
+        "ad": ad or "",
+        "soyad": soyad or "",
+        "email": lead.get("client_email") or "",
+        "telefon": lead.get("client_phone") or "",
+        "mesaj": lead.get("client_form_note") or "",
+        "hizmetAlan": brief.get("hizmetAlan", ""),
+        "seilenUzman": brief.get("seilenUzman", ""),
+        "randevuTarihi": brief.get("randevuTarihi", ""),
+        "projeBrifi": brief.get("projeBrifi", ""),
+        "projeGorselleri": brief.get("gallery_items", []),
+        "durum": LEAD_STATUS_LABELS.get(lead.get("status"), "Randevu Bekliyor"),
+        # SQLite CURRENT_TIMESTAMP UTC'dir; Wix tarafı ISO 8601 bekler
+        "_createdDate": created.replace(" ", "T") + "Z" if created else ""
+    }
+
+
+@main_bp.route("/api/panel/on-gorusmeler", methods=["GET"])
+def panel_on_gorusmeler():
+    """Wix 'Ön Görüşme Yönetim Paneli' için tamamlanmış talepler (yeniden eskiye)."""
+    leads = [format_panel_lead(l) for l in get_all_completed_leads()]
+    return jsonify({"success": True, "items": leads, "totalCount": len(leads)})
+
+
+@main_bp.route("/api/panel/on-gorusmeler/<int:lead_id>", methods=["GET"])
+def panel_on_gorusme_detay(lead_id):
+    """Wix 'Ön Görüşme Detayı' sayfası için tek talep."""
+    leads = get_all_completed_leads(lead_id=lead_id)
+    if not leads:
+        return jsonify({"success": False, "error": "Kayıt bulunamadı."}), 404
+    return jsonify({"success": True, "item": format_panel_lead(leads[0])})
+
+
 @main_bp.route("/api/session/wix-summary", methods=["GET"])
 def get_session_wix_summary():
     token = request.args.get("session_token")
@@ -659,21 +730,47 @@ def get_latest_session_summary():
 
 @main_bp.route("/api/wix/complete-form", methods=["POST"])
 def wix_complete_form():
+    """
+    Wix ön görüşme formunun TEK kayıt noktası (Wix CMS/dataset kullanılmaz).
+    Ad/soyad ayrı (ad, soyad) veya birleşik (name) gelebilir; telefon opsiyoneldir.
+    Chatbot oturumu (session_token) yoksa veya bulunamazsa form yeni bir talep olarak kaydedilir.
+    """
     data = request.get_json() or {}
-    token = data.get("session_token")
-    client_name = data.get("name")
-    client_email = data.get("email")
-    client_phone = data.get("phone")
-    client_note = data.get("note", "")
+    token = (data.get("session_token") or "").strip()
+    ad = (data.get("ad") or "").strip()
+    soyad = (data.get("soyad") or "").strip()
+    client_name = f"{ad} {soyad}".strip() or (data.get("name") or "").strip()
+    client_email = (data.get("email") or "").strip()
+    client_phone = (data.get("phone") or data.get("telefon") or "").strip()
+    client_note = (data.get("note") or data.get("not") or "").strip()
 
-    if not token or not client_name or not client_phone:
-        return jsonify({"error": "Eksik form bilgileri."}), 400
+    if not client_name or not client_email:
+        return jsonify({
+            "success": False,
+            "error": "missing_fields",
+            "message": "Lütfen ad, soyad ve e-posta alanlarını doldurun."
+        }), 400
 
-    result = complete_form_submission(token, client_name, client_email, client_phone, client_note)
+    if "@" not in client_email or "." not in client_email.split("@")[-1]:
+        return jsonify({
+            "success": False,
+            "error": "invalid_email",
+            "message": "Lütfen geçerli bir e-posta adresi girin."
+        }), 400
+
+    form_args = (client_name, client_email, client_phone, client_note, ad or None, soyad or None)
+    result = complete_form_submission(token, *form_args) if token else {"status": "not_found"}
     status = result.get("status")
 
     if status == "not_found":
-        return jsonify({"success": False, "error": "Oturum bulunamadı."}), 404
+        # Chatbot'u kullanmadan formu dolduran kişi de panele düşsün
+        token = get_or_create_session(None)["session_token"]
+        result = complete_form_submission(token, *form_args)
+        status = result.get("status")
+
+    if status == "completed":
+        # Panelde gösterilecek brif çıktısı kayıt anındaki haliyle saklanır
+        save_brief_snapshot(token)
 
     if status == "slot_unavailable":
         session = get_or_create_session(token)

@@ -102,6 +102,11 @@ def init_db():
     existing_cols = [r["name"] for r in cursor.fetchall()]
     if "flow_state" not in existing_cols:
         cursor.execute("ALTER TABLE chat_sessions ADD COLUMN flow_state TEXT")
+    # Wix ön görüşme formundaki ad / soyad ayrı tutulur (yönetim paneli alanları)
+    if "client_ad" not in existing_cols:
+        cursor.execute("ALTER TABLE chat_sessions ADD COLUMN client_ad TEXT")
+    if "client_soyad" not in existing_cols:
+        cursor.execute("ALTER TABLE chat_sessions ADD COLUMN client_soyad TEXT")
 
     # 5. Leads (Temel Müşteri / Talep Tablosu - Yönerge & Yazılım Kontrol)
     cursor.execute("""
@@ -348,7 +353,8 @@ def _parse_flow_state(raw):
     state.setdefault("estimate_asked", {})
     return state
 
-def complete_form_submission(session_token, client_name, client_email, client_phone, client_note=""):
+def complete_form_submission(session_token, client_name, client_email, client_phone, client_note="",
+                             client_ad=None, client_soyad=None):
     """
     Wix veya harici iletişim sayfasından gelen form verisini oturumla birleştirir.
 
@@ -403,6 +409,8 @@ def complete_form_submission(session_token, client_name, client_email, client_ph
         cursor.execute("""
             UPDATE chat_sessions
             SET client_name = ?,
+                client_ad = ?,
+                client_soyad = ?,
                 client_email = ?,
                 client_phone = ?,
                 client_form_note = ?,
@@ -411,7 +419,7 @@ def complete_form_submission(session_token, client_name, client_email, client_ph
                 form_completed_at = CURRENT_TIMESTAMP,
                 updated_at = CURRENT_TIMESTAMP
             WHERE session_token = ?
-        """, (client_name, client_email, client_phone, client_note, session_token))
+        """, (client_name, client_ad, client_soyad, client_email, client_phone, client_note, session_token))
 
         conn.commit()
         return {"status": "completed", "slot_booked": slot_booked}
@@ -421,8 +429,8 @@ def complete_form_submission(session_token, client_name, client_email, client_ph
     finally:
         conn.close()
 
-def get_all_completed_leads(expert_id=None, office_id=None):
-    """Panel için tamamlanmış talepleri getirir."""
+def get_all_completed_leads(expert_id=None, office_id=None, lead_id=None):
+    """Panel için tamamlanmış talepleri getirir (lead_id verilirse yalnızca o kayıt)."""
     conn = get_db_connection()
     cursor = conn.cursor()
     query = """
@@ -435,6 +443,9 @@ def get_all_completed_leads(expert_id=None, office_id=None):
         WHERE s.is_form_completed = 1
     """
     params = []
+    if lead_id is not None:
+        query += " AND s.id = ?"
+        params.append(lead_id)
     if expert_id:
         query += " AND s.selected_expert_id = ?"
         params.append(expert_id)
@@ -451,6 +462,7 @@ def get_all_completed_leads(expert_id=None, office_id=None):
         d["collected_data"] = json.loads(d["collected_data"]) if d["collected_data"] else {}
         d["uploaded_images"] = json.loads(d["uploaded_images"]) if d["uploaded_images"] else []
         d["brief_summary"] = json.loads(d["brief_summary"]) if d["brief_summary"] else {}
+        d["flow_state"] = _parse_flow_state(d.get("flow_state"))
         leads.append(d)
     conn.close()
     return leads

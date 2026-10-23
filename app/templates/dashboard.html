@@ -135,11 +135,12 @@
                 </td>
                 <td style="padding: 12px 16px;">
                   <strong>{{ lead.client_name }}</strong><br>
-                  <span style="font-size: 0.78rem; color: var(--color-text-muted);">{{ lead.client_phone }} • {{ lead.client_email }}</span>
+                  <span style="font-size: 0.78rem; color: var(--color-text-muted);">{{ lead.client_phone or '-' }} • {{ lead.client_email }}</span>
+                  {% if lead.client_form_note %}<br><span style="font-size: 0.75rem; color: var(--color-text-muted);"><i class="fa-regular fa-note-sticky"></i> {{ lead.client_form_note | truncate(60) }}</span>{% endif %}
                 </td>
                 <td style="padding: 12px 16px; text-transform: capitalize;">
                   <span style="background: var(--color-primary-light); color: var(--color-primary); padding: 4px 10px; border-radius: 99px; font-weight: 600; font-size: 0.78rem;">
-                    {{ lead.service_type }}
+                    {{ lead.service_type or 'Form (Chatbot yok)' }}
                   </span>
                 </td>
                 <td style="padding: 12px 16px;">
@@ -178,6 +179,11 @@
       <h3 style="color: var(--color-primary); font-size: 1.2rem; margin-bottom: 0.25rem;" id="modalClientName">Müşteri Adı</h3>
       <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 1.25rem;" id="modalClientMeta"></p>
 
+      <div style="background: #FAF9F7; border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem; margin-bottom: 1rem;">
+        <h4 style="font-size: 0.9rem; color: var(--color-primary); margin-bottom: 6px;">Müşterinin Form Notu:</h4>
+        <p style="font-size: 0.85rem; line-height: 1.6; white-space: pre-wrap;" id="modalClientNote"></p>
+      </div>
+
       <div style="background: #FAF9F7; border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem; margin-bottom: 1rem;" id="modalBriefContent"></div>
 
       <div id="modalImagesContainer" style="margin-bottom: 1rem;"></div>
@@ -203,6 +209,7 @@
       document.getElementById('leadModal').style.display = 'flex';
       document.getElementById('modalClientName').innerText = lead.client_name || 'İsimsiz Talep';
       document.getElementById('modalClientMeta').innerText = `Telefon: ${lead.client_phone || '-'} | E-posta: ${lead.client_email || '-'} | Tarih: ${lead.form_completed_at || '-'}`;
+      document.getElementById('modalClientNote').innerText = lead.client_form_note || 'Not eklenmemiş.';
       
       const collected = lead.collected_data || {};
       let briefHtml = `<h4 style="font-size:0.9rem; color:var(--color-primary); margin-bottom:8px;">Ön Görüşme Brif Yanıtları:</h4><div style="font-size:0.85rem; line-height:1.7;">`;

@@ -41,16 +41,38 @@ Wix profil sayfasında butona link verirken:
 
 **Önemli Kural:** Chatbot içinde kesinlikle bir form açılmaz. Chatbotta brif onaylandıktan sonra **"İletişim Formunu Tamamla"** butonu müşteriyi Wix iletişim sayfasına yönlendirir (`/iletisim?session_token=...`).
 
-1. **Wix Editör'de** İletişim sayfasını açın ve **Dev Mode**'u aktif edin.
+> **Kural:** Form verisi Wix CMS'e / dataset'e **yazılmaz**. Tek kayıt noktası Flask backend'dir (`/api/wix/complete-form`).
+
+1. **Wix Editör'de** ÖN GÖRÜŞME sayfasını açın ve kodlamayı aktif edin.
 2. **Backend Kod Dosyası:**
-   - Code Files -> Backend -> **New Web Module (.jsw)** oluşturun.
-   - Adını `rumenova-service.jsw` koyun ve [`wix_integration/wix-velo-backend.jsw`](file:///c:/wamp64/www/chat/wix_integration/wix-velo-backend.jsw) kodunu yapıştırın.
+   - Code -> Backend & Public -> Backend -> **+** -> `rumenova-service.web.js` oluşturun.
+   - [`wix_integration/rumenova-service.web.js`](rumenova-service.web.js) kodunu yapıştırın.
 3. **Sayfa Kodu:**
-   - İletişim sayfasının altındaki **Page Code** sekmesine [`wix_integration/wix-velo-frontend.js`](file:///c:/wamp64/www/chat/wix_integration/wix-velo-frontend.js) kodunu yapıştırın.
+   - ÖN GÖRÜŞME sayfasının **Page Code** sekmesine [`wix_integration/wix-velo-frontend.js`](wix-velo-frontend.js) kodunu yapıştırın.
+   - Eleman ID'leri: `#input1` Ad, `#input2` Soyad, `#input3` E-posta, `#input4` Telefon, `#input5` Not, `#button39` Brifimi Gönder.
+   - İsteğe bağlı: formun altına bir metin elemanı ekleyip ID'sini `#txtStatusMsg` yapın (başarı/hata mesajı burada görünür).
+4. **Eski Wix veritabanı akışını kapatın:**
+   - Form inputları bir dataset'e bağlıysa bağlantıyı kaldırın.
+   - Backend `data.js` içindeki `IletisimMesajlari_beforeInsert` hook'unu silin (`/api/session/latest` başka kullanıcının brifini kayda ekleyebilir).
 
 ---
 
-## 📊 Adım 4: Mimar ve Yönetici Paneli
+## 🗂️ Adım 4: Wix Ön Görüşme Yönetim Paneli (veri backend'den)
+
+Panel ve detay sayfası verileri Wix CMS'ten değil, backend'den okur:
+
+| Wix sayfası | Sayfa kodu | Backend adresi |
+|---|---|---|
+| Ön Görüşme Yönetim Paneli | [`wix-panel-page.js`](wix-panel-page.js) | `GET /api/panel/on-gorusmeler` |
+| Ön Görüşme Detay (`/on-gorusme-detay?id=...`) | [`wix-detail-page.js`](wix-detail-page.js) | `GET /api/panel/on-gorusmeler/<id>` |
+
+- Panelde `#repeater1` dataset'e bağlı değildir; satırları kod doldurur. `#dataset1` ve eski dinamik sayfa (Ön Görüşme Mesajları (Item)) silinmedi, kullanılmıyor.
+- "Brifi görüntüle" (`#button44`) yeni detay sayfasını `?id=` ile açar.
+- Chatbot brifi, brif onaylandığında ve form gönderildiğinde `chat_sessions.brief_summary` alanına kaydedilir; panel bu kayıtlı brifi gösterir.
+
+---
+
+## 📊 Adım 5: Mimar ve Yönetici Paneli
 
 Müşteri Wix formunu gönderdiğinde:
 - İletişim bilgileri + Ön Brif + Seçilen Uygun Randevu Saati + Yüklenen Görseller tek kayıtta birleşir.
