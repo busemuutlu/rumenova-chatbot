@@ -1,6 +1,27 @@
 import json
+import os
 import re
+import sys
+import time
 from config import Config
+
+# Sırayla denenen Groq modelleri (her modelin dakikalık kotası ayrıdır)
+GROQ_MODELS = [m.strip() for m in os.getenv(
+    "GROQ_MODELS", "openai/gpt-oss-120b,llama-3.3-70b-versatile,openai/gpt-oss-20b"
+).split(",") if m.strip()]
+
+# Konuşma motorunda kullanılan kısa Nova talimatı (token tasarrufu; eski adresler BUSINESS_CONTEXT kullanır)
+NOVA_PERSONA = """Sen Rumenova'nın yapay zekâ destekli ön görüşme asistanı Nova'sın.
+Rumenova; mimari tasarım, iç mimarlık ve peyzaj tasarımı alanlarında kullanıcıyı uygun mimar veya ofisle buluşturan
+yapay zekâ destekli bir ön görüşme platformudur. Mimarlık ofisi değildir: proje çizmez, teknik karar vermez,
+kesin fiyat veya teslim süresi söylemez. Kullanıcı isterse ihtiyacını kısa sorularla bir ön brife dönüştürür;
+kullanıcı brifi onaylayıp iletişim formunu doldurunca brif seçtiği uzmana iletilir.
+Türkçe, sade, samimi ve profesyonel konuş. Yanıtların 1-3 kısa cümle olsun. Kullanıcının sorusuna doğrudan cevap ver,
+konuyu değiştirme, bilgi uydurma. Kullanıcının yazım hatalarını anla ama düzeltmeye çalışma."""
+
+# Serbest sohbette (hizmet alanı belli değilken) yapay zekânın çıkarmaya çalıştığı temel alanlar
+COMPACT_FIELDS = {"konum", "yaklasik_alan", "proje_turu", "kullanim_amaci", "mekan_turu", "acik_alan_turu",
+                  "butce_araligi", "hedef_zaman"}
 
 # PDF MADDE 8, 9, 10 BİREBİR SORU SETLERİ
 QUESTION_POOLS = {
@@ -539,25 +560,45 @@ GÖREVİN:
     # --- Konuşma motoru (/api/chat) için yapay zekâ görevleri ---
 
     def _llm(self, messages, temperature=0.4, max_tokens=700, json_mode=False):
-        """Groq çağrısı. Anahtar yoksa veya hata olursa None döner (çağıran kural tabanlı yedeğe geçer)."""
+        """
+        Groq çağrısı. Bir model hata verirse (ör. dakikalık kota / 429) sıradaki modeli dener.
+        Hiçbiri cevap vermezse None döner ve çağıran kural tabanlı yedeğe geçer.
+        Hatalar Render loglarına "[Nova AI]" önekiyle yazılır.
+        """
         if not Config.GROQ_API_KEY:
             return None
         try:
             from groq import Groq
-            # Render (gunicorn) isteği 30 sn sonra keser; tek turda en fazla iki çağrı olabilir
-            client = Groq(api_key=Config.GROQ_API_KEY, timeout=12.0, max_retries=0)
-            kwargs = {
-                "messages": messages,
-                "model": "openai/gpt-oss-120b",
-                "temperature": temperature,
-                "max_tokens": max_tokens
-            }
-            if json_mode:
-                kwargs["response_format"] = {"type": "json_object"}
-            chat_completion = client.chat.completions.create(**kwargs)
-            return (chat_completion.choices[0].message.content or "").strip() or None
-        except Exception:
+        except ImportError:
             return None
+
+        # Render (gunicorn) isteği 30 sn sonra keser; bir çağrı zinciri en fazla ~14 sn sürer
+        deadline = time.monotonic() + 14
+        for model in GROQ_MODELS:
+            remaining = deadline - time.monotonic()
+            if remaining < 2:
+                break
+            try:
+                client = Groq(api_key=Config.GROQ_API_KEY, timeout=min(9.0, remaining), max_retries=0)
+                kwargs = {
+                    "messages": messages,
+                    "model": model,
+                    "temperature": temperature,
+                    "max_tokens": max_tokens
+                }
+                if json_mode:
+                    kwargs["response_format"] = {"type": "json_object"}
+                if model.startswith("openai/gpt-oss"):
+                    # Düşünme (reasoning) bütçesini küçük tut: daha hızlı ve daha az token
+                    kwargs["extra_body"] = {"reasoning_effort": "low"}
+                chat_completion = client.chat.completions.create(**kwargs)
+                content = (chat_completion.choices[0].message.content or "").strip()
+                if content:
+                    return content
+                print(f"[Nova AI] {model}: boş yanıt", file=sys.stderr, flush=True)
+            except Exception as e:
+                print(f"[Nova AI] {model}: {type(e).__name__}: {str(e)[:300]}", file=sys.stderr, flush=True)
+        return None
 
     @staticmethod
     def _parse_json(text):
@@ -575,14 +616,16 @@ GÖREVİN:
         return None
 
     @staticmethod
-    def _field_catalog(service_type=None):
-        """Yapay zekâya verilen alan listesi: 'alan_adi: soru' satırları."""
+    def _field_catalog(service_type=None, compact=False):
+        """Yapay zekâya verilen alan listesi: 'alan_adi: soru' satırları (compact: yalnızca temel alanlar)."""
         services = [service_type] if service_type in QUESTION_POOLS else list(QUESTION_POOLS)
         lines, seen = [], set()
         for s in services:
             for q in QUESTION_POOLS[s]:
                 field = q["field"]
                 if field in seen or q.get("type") == "media_and_notes":
+                    continue
+                if compact and field not in COMPACT_FIELDS:
                     continue
                 seen.add(field)
                 choices = f" (seçenekler: {', '.join(q['choices'])})" if q.get("choices") else ""
@@ -615,12 +658,13 @@ GÖREVİN:
             )
         else:
             durum = (
-                "Şu an SERBEST SOHBET aşamasındasın. Kullanıcının sorularını kısaca yanıtla. "
-                "Bu aşamada brif sorularını sen sorma: kullanıcı bir proje talebi belirttiğinde sistem ona "
-                "ön görüşme brifi oluşturmayı ayrıca teklif edecek. proje_talebi true ise yanıtında soru sorma."
+                "Şu an SERBEST SOHBET aşamasındasın. Kullanıcının söylediğine doğrudan ve konuyla ilgili yanıt ver; "
+                "kimliğin, Rumenova veya süreç sorulursa açıkla. Kullanıcıyı brife veya forma yönlendirme, brif "
+                "teklifini sistem gerektiğinde kendisi yapar. Kullanıcı rahatsızlık belirtirse özür dile ve "
+                "sohbete onun istediği konuda devam et. proje_talebi true ise yanıtında soru sorma."
             )
 
-        system_prompt = f"""{Config.BUSINESS_CONTEXT}
+        system_prompt = f"""{NOVA_PERSONA}
 
 AŞAMA BİLGİSİ:
 {durum}
@@ -632,13 +676,13 @@ AŞAMA BİLGİSİ:
 - hizmet: talebin ait olduğu alan (mimari = yeni yapı / bina / restorasyon, ic_mimari = iç mekân düzenleme / tadilat / dekorasyon, peyzaj = bahçe / teras / açık alan). Emin değilsen null.
 - bilgiler: kullanıcının mesajlarında AÇIKÇA verdiği bilgiler; yalnızca aşağıdaki alan adlarıyla. Yazım hatalarını ve Türkçe karakter eksiklerini düzelt (ör. "istnbul" -> "İstanbul"), metrekareyi "150 m²" biçiminde yaz. Verilmeyen bilgiyi yazma, tahmin etme.
 Alan adları:
-{self._field_catalog(service_type)}
+{self._field_catalog(service_type, compact=service_type is None)}
 """
         messages = [{"role": "system", "content": system_prompt}]
-        messages += self._history_for_llm(gecmis)
+        messages += self._history_for_llm(gecmis, limit=8)
         messages.append({"role": "user", "content": str(mesaj).strip()})
 
-        data = self._parse_json(self._llm(messages, temperature=0.5, max_tokens=900, json_mode=True))
+        data = self._parse_json(self._llm(messages, temperature=0.5, max_tokens=700, json_mode=True))
         if not isinstance(data, dict) or not str(data.get("yanit") or "").strip():
             return None
         hizmet = data.get("hizmet")
@@ -703,7 +747,7 @@ KURALLAR:
     def kisa_yanit(self, soru, gecmis=None):
         """Brif aşamasında yan soruya kısa yanıt (yapay zekâ yoksa None)."""
         system_prompt = (
-            f"{Config.BUSINESS_CONTEXT}\n\nKullanıcı ön görüşme brifi sırasında bir yan soru sordu. "
+            f"{NOVA_PERSONA}\n\nKullanıcı ön görüşme brifi sırasında bir yan soru sordu. "
             "Yalnızca bu soruya 1-2 cümlelik kısa ve profesyonel bir yanıt ver; yeni soru sorma."
         )
         messages = [{"role": "system", "content": system_prompt}]

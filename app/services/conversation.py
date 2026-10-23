@@ -54,8 +54,11 @@ MSG_CHOOSE = "Lütfen seçeneklerden birini seçin ya da numarasını yazın."
 MSG_SIDE_FALLBACK = "Bu konuyu ön görüşmede uzmanınızla ayrıntılı konuşabilirsiniz."
 MSG_CONTINUE = "Kaldığımız yerden devam edelim:"
 
-BRIEF_REQUEST_PREFIXES = ["brif", "randevu", "basvur"]
-BRIEF_REQUEST_PHRASES = ["on gorusme", "formu doldur", "baslayalim", "basla"]
+BRIEF_TOPIC_PREFIXES = ["brif", "randevu", "basvur", "gorusme"]
+BRIEF_ACTION_PREFIXES = ["olustur", "basla", "baslat", "hazirla", "doldur", "almak", "istiyorum", "yapalim",
+                         "yapmak", "gecelim", "ayarla"]
+BRIEF_EXACT_COMMANDS = {"brif", "basla", "baslayalim", "brif olustur", "brife basla"}
+BRIEF_NEGATIVE_WORDS = ["neden", "niye", "istemiyorum", "dayat", "degil", "gerek yok", "hayir", "israr", "surekli"]
 
 
 def form_url(token):
@@ -74,12 +77,33 @@ def _public_question(q):
     return {k: q.get(k) for k in ("id", "field", "question", "choices", "type") if q.get(k) is not None}
 
 
+FALLBACK_REPLIES = [
+    (lambda n: nz.is_complaint(n),
+     "Haklısınız, kusura bakmayın. Brif oluşturmak tamamen isteğe bağlı; dilediğiniz konuda sohbet edebiliriz."),
+    (lambda n: any(k in n for k in ["kimsin", "nesin", "adin ne", "sen kim", "kim oldugun", "kendini tanit"]),
+     "Ben Nova, Rumenova'nın yapay zekâ destekli ön görüşme asistanıyım. Mimari, iç mimari ve peyzaj "
+     "projelerinizle ilgili sorularınızı yanıtlıyor; isterseniz uygun uzmanla görüşmeniz için kısa bir ön brif "
+     "hazırlıyorum."),
+    (lambda n: "rumenova" in n or any(k in n for k in ["ne yapiyorsunuz", "nasil calis", "nasil isliyor", "sistem ne"]),
+     "Rumenova, mimari tasarım, iç mimarlık ve peyzaj alanlarında sizi uygun mimar veya ofisle buluşturan bir "
+     "ön görüşme platformudur. İhtiyacınızı kısa sorularla bir brife dönüştürüyoruz; onayladığınızda brif seçtiğiniz "
+     "uzmana iletiliyor."),
+    (lambda n: any(k in n for k in ["fiyat", "ucret", "kac para", "maliyet", "ne kadar tutar"]),
+     "Kesin fiyatı projenin kapsamına göre uzman belirler; ön görüşmede bütçe aralığınızı konuşabilirsiniz."),
+    (lambda n: any(k in n for k in ["tesekkur", "sagol", "eyvallah"]),
+     "Rica ederim! Başka merak ettiğiniz bir şey olursa buradayım."),
+    (lambda n: any(w in n.split() for w in ["merhaba", "selam", "slm", "gunaydin", "mrb"]) or "iyi gunler" in n,
+     "Merhaba! Ben Nova. Size nasıl yardımcı olabilirim?"),
+]
+
+
 def _fallback_reply(text):
+    """Yapay zekâ cevap veremediğinde konuya göre kısa yanıt (brife yönlendirmez)."""
     n = nz.norm(text)
-    if any(w in n.split() for w in ["merhaba", "selam", "slm", "gunaydin"]) or "iyi gunler" in n:
-        return "Merhaba! Ben Rumenova'nın dijital asistanı Nova. Size projenizde nasıl yardımcı olabilirim?"
-    return ("Projenizle ilgili detayları memnuniyetle dinlemek isterim. İhtiyacınızı kısaca anlatırsanız "
-            "size en uygun uzmanla ön görüşme brifinizi oluşturabiliriz.")
+    for matches, reply in FALLBACK_REPLIES:
+        if matches(n):
+            return reply
+    return "Anladım. Size daha iyi yardımcı olabilmem için biraz daha açar mısınız?"
 
 
 def derive_stage(session):
@@ -267,7 +291,7 @@ class ChatTurn:
         return self
 
     def _enter_sohbet(self, emit):
-        self.ui = {"type": "none", "options": [_option("Ön görüşme brifi oluştur", "start_brief")]}
+        self.ui = {"type": "none", "options": []}
 
     def _enter_tamamlandi(self, emit):
         if emit:
@@ -581,8 +605,9 @@ class ChatTurn:
         self.say(result["yanit"])
         if done:
             return self.enter("tamamlandi", emit=False)
-        if self.stage == "onay":
-            return self.enter("onay", emit=False)
+        if nz.is_complaint(nz.norm(text)):
+            self.state["offer_declined_at"] = self.user_message_count()
+            return self.enter("sohbet", emit=False)
         if result.get("proje_talebi") and self.can_offer():
             return self.enter("onay")
         return self.enter("sohbet", emit=False)
@@ -598,10 +623,14 @@ class ChatTurn:
 
     def wants_brief(self, text):
         n = nz.norm(text)
-        if nz.is_side_question(text):
+        if n in BRIEF_EXACT_COMMANDS:
+            return True
+        if nz.is_side_question(text) or any(w in n for w in BRIEF_NEGATIVE_WORDS):
             return False
-        return any(w.startswith(p) for w in n.split() for p in BRIEF_REQUEST_PREFIXES) \
-            or nz._contains_phrase(n, BRIEF_REQUEST_PHRASES)
+        words = n.split()
+        has_topic = any(w.startswith(p) for w in words for p in BRIEF_TOPIC_PREFIXES)
+        has_action = any(w.startswith(p) for w in words for p in BRIEF_ACTION_PREFIXES)
+        return has_topic and has_action
 
     # --- Giriş noktaları ---
 
@@ -620,6 +649,9 @@ class ChatTurn:
                 return self.start_brief()
             if nz.is_no(text):
                 return self.decline()
+            # Teklife cevap vermeden başka bir şey yazdı: teklifi kapat, ısrar etme
+            self.state["offer_declined_at"] = self.user_message_count()
+            self.state["stage"] = "sohbet"
             return self.chat(text)
         if stage == "sorular":
             return self.answer(text)
@@ -772,6 +804,8 @@ def chat_init(data):
         else:
             turn.say(MSG_WELCOME)
             turn.enter("sohbet", emit=False)
+            # Brif butonu yalnızca karşılamada gösterilir; sonrasında teklif yalnızca proje talebinde gelir
+            turn.ui["options"] = [_option("Ön görüşme brifi oluştur", "start_brief")]
     else:
         turn.enter(turn.stage, emit=False)
 

@@ -45,9 +45,11 @@ SERVICE_KEYWORDS = {
     "mimari": ["mimari", "mimar", "bina", "yapi", "villa", "insaat", "ev yap", "konut", "restorasyon",
                "yeni yapi", "kat"]
 }
-PROJECT_WORDS = ["proje", "tasarim", "tasarla", "tadilat", "yenile", "yaptir", "insa", "dekor", "duzenle",
-                 "mimar", "metrekare", "m2", "villa", "daire", "bahce", "ofis", "randevu", "gorusme",
-                 "on gorusme", "brif", "teklif", "fiyat", "ev "]
+# Yapay zekâ yokken proje talebi sayılan ifadeler (yalnızca somut proje / iş isteği)
+PROJECT_WORDS = ["projem", "tasarlat", "tadilat", "yenilet", "yaptir", "insa et", "dekore", "duzenlet",
+                 "metrekare", "m2", "villa", "dairem", "bahcem", "evim", "ofisim"]
+COMPLAINT_WORDS = ["dayat", "israr", "surekli", "neden hep", "niye hep", "rahatsiz", "biktim", "yeter", "sacma",
+                   "istemiyorum", "zorla"]
 KEYBOARD_MASH = ["asd", "qwe", "sdf", "dfg", "zxc", "jkl", "hjk", "wer", "xcv", "fgh"]
 VOWELS = set("aeiou")
 
@@ -151,9 +153,16 @@ def detect_service(text):
     return None
 
 
+def is_complaint(normalized):
+    """Kullanıcı rahatsızlık / şikâyet belirtiyor mu (norm() uygulanmış metin)."""
+    return any(w in normalized for w in COMPLAINT_WORDS)
+
+
 def looks_like_project_request(text):
     n = norm(text)
-    return detect_service(text) is not None or _fuzzy_word_hit(f"{n} ", PROJECT_WORDS)
+    if is_complaint(n) or is_side_question(text):
+        return False
+    return detect_service(text) is not None or any(w in f" {n} " for w in PROJECT_WORDS)
 
 
 def match_province(text):
