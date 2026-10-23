@@ -37,6 +37,9 @@ MSG_WELCOME = ("Merhaba, ben Rumenova'nın yapay zekâ destekli asistanı Nova. 
 MSG_OFFER = "Talebinizi uzmanımıza iletebilmem için ön görüşme brifinizi oluşturalım mı? Birkaç kısa soru soracağım."
 MSG_BRIEF_START = ("Harika! Sizi ön görüşme formumuza yönlendiriyorum; sorularımı tek tek soracağım. "
                    "Cevaplamak istemediğiniz soruyu \"geç\" yazarak atlayabilirsiniz.")
+MSG_RECOMMEND = ("Size en uygun mimarı veya ofisi önerebilmem için önce ihtiyacınızı birlikte belirleyelim. "
+                 "Birkaç kısa soru soracağım; seçeneklerden seçebilir ya da kendi cümlelerinizle cevap "
+                 "verebilirsiniz. Başlayalım mı?")
 MSG_OFFER_DECLINED = "Tabii, sohbetimize devam edelim. Hazır olduğunuzda \"brif oluştur\" yazmanız yeterli."
 MSG_ASK_SERVICE = "Hangi hizmet alanında ön görüşme yapmak istersiniz?"
 MSG_ASK_PROF = "Bu alanda hangi mimar veya ofisle görüşmek istersiniz?"
@@ -64,6 +67,8 @@ BRIEF_TOPIC_PREFIXES = ["brif", "randevu", "basvur", "gorusme"]
 BRIEF_ACTION_PREFIXES = ["olustur", "basla", "baslat", "hazirla", "doldur", "almak", "istiyorum", "yapalim",
                          "yapmak", "gecelim", "ayarla"]
 BRIEF_EXACT_COMMANDS = {"brif", "basla", "baslayalim", "brif olustur", "brife basla"}
+# Kısa mesajlarda tek başına brifi başlatan kelimeler ("tamam başla", "hadi başlayalım", "başlıyalım")
+BRIEF_START_PREFIXES = ["basl"]
 BRIEF_NEGATIVE_WORDS = ["neden", "niye", "istemiyorum", "dayat", "degil", "gerek yok", "hayir", "israr", "surekli"]
 
 
@@ -600,6 +605,10 @@ class ChatTurn:
     def chat(self, text):
         """Serbest sohbet (ve brif sonrası sohbet): yapay zekâ yanıtı + niyet tespiti."""
         done = self.stage == "tamamlandi"
+        if not done and nz.is_recommendation_request(text):
+            # Uzman önerisi isteniyor: önce ihtiyacı brif sorularıyla belirlemeyi teklif et
+            self.say(MSG_RECOMMEND)
+            return self.enter("onay", emit=False)
         brief_text = None
         if done:
             brief_text = (self.get("brief_summary") or {}).get("projeBrifi")
@@ -645,6 +654,8 @@ class ChatTurn:
         if nz.is_side_question(text) or any(w in n for w in BRIEF_NEGATIVE_WORDS):
             return False
         words = n.split()
+        if len(words) <= 4 and any(w.startswith(p) for w in words for p in BRIEF_START_PREFIXES):
+            return True
         has_topic = any(w.startswith(p) for w in words for p in BRIEF_TOPIC_PREFIXES)
         has_action = any(w.startswith(p) for w in words for p in BRIEF_ACTION_PREFIXES)
         return has_topic and has_action

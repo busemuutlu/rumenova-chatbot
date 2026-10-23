@@ -158,6 +158,22 @@ def is_complaint(normalized):
     return any(w in normalized for w in COMPLAINT_WORDS)
 
 
+# "Sen öner", "kimi seçeyim", "hangi mimarla çalışayım" gibi uzman önerisi istekleri
+RECOMMEND_PREFIXES = ["oner", "tavsiye"]
+RECOMMEND_PATTERNS = ["kimi sec", "kimle calis", "kimle gorus", "kim yapar", "kime gid",
+                      "hangi mimar", "hangi ofis", "hangi uzman", "hangisini sec", "uygun mimar", "uygun ofis",
+                      "uygun uzman", "mimar bul", "ofis bul", "uzman bul"]
+
+
+def is_recommendation_request(text):
+    n = norm(text)
+    if not n or is_complaint(n):
+        return False
+    if any(w.startswith(p) for w in n.split() for p in RECOMMEND_PREFIXES):
+        return True
+    return any(p in n for p in RECOMMEND_PATTERNS)
+
+
 def looks_like_project_request(text):
     n = norm(text)
     if is_complaint(n) or is_side_question(text):

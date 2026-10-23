@@ -661,7 +661,11 @@ GÖREVİN:
                 "Şu an SERBEST SOHBET aşamasındasın. Kullanıcının söylediğine doğrudan ve konuyla ilgili yanıt ver; "
                 "kimliğin, Rumenova veya süreç sorulursa açıkla. Kullanıcıyı brife veya forma yönlendirme, brif "
                 "teklifini sistem gerektiğinde kendisi yapar. Kullanıcı rahatsızlık belirtirse özür dile ve "
-                "sohbete onun istediği konuda devam et. proje_talebi true ise yanıtında soru sorma."
+                "sohbete onun istediği konuda devam et. proje_talebi true ise yanıtında soru sorma. "
+                "Kullanıcıdan proje bilgilerini (konum, alan, kullanım amacı vb.) kendisinin yazmasını İSTEME; "
+                "bu bilgiler sistemin soracağı brif sorularıyla toplanır. Kullanıcı başlamak istediğini, uzman "
+                "önerisi istediğini ya da ne paylaşacağını bilmediğini belirtirse proje_talebi true döndür ve "
+                "yanıtında yalnızca kısaca birkaç soruyla ihtiyacını birlikte belirleyeceğinizi söyle."
             )
 
         system_prompt = f"""{NOVA_PERSONA}
@@ -672,7 +676,7 @@ AŞAMA BİLGİSİ:
 ÇIKTI: Yalnızca şu JSON nesnesini döndür, başka metin yazma:
 {{"yanit": "kullanıcıya gösterilecek kısa Türkçe yanıt", "proje_talebi": true/false, "hizmet": "mimari" | "ic_mimari" | "peyzaj" | null, "bilgiler": {{"alan_adi": "değer"}}}}
 
-- proje_talebi: kullanıcı bir mimari / iç mimari / peyzaj projesi yaptırmak, tasarlatmak, yenilemek veya bir uzmanla ön görüşme yapmak istediğini belli ettiyse true.
+- proje_talebi: kullanıcı bir mimari / iç mimari / peyzaj projesi yaptırmak, tasarlatmak, yenilemek, bir uzmanla ön görüşme yapmak, uzman önerisi almak veya brife başlamak istediğini belli ettiyse true.
 - hizmet: talebin ait olduğu alan (mimari = yeni yapı / bina / restorasyon, ic_mimari = iç mekân düzenleme / tadilat / dekorasyon, peyzaj = bahçe / teras / açık alan). Emin değilsen null.
 - bilgiler: kullanıcının mesajlarında AÇIKÇA verdiği bilgiler; yalnızca aşağıdaki alan adlarıyla. Yazım hatalarını ve Türkçe karakter eksiklerini düzelt (ör. "istnbul" -> "İstanbul"), metrekareyi "150 m²" biçiminde yaz. Verilmeyen bilgiyi yazma, tahmin etme.
 Alan adları:
