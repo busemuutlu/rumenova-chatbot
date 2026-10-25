@@ -30,6 +30,7 @@ Wix profil sayfasında butona link verirken:
 - **Deniz Arslan için:** `http://127.0.0.1:5000/?expert_code=deniz_arslan`
 - **İdil Ergin için:** `http://127.0.0.1:5000/?expert_code=idil_ergin`
 - **Mert Kaya için:** `http://127.0.0.1:5000/?expert_code=mert_kaya`
+- **Meltem Turan için:** `http://127.0.0.1:5000/?expert_code=meltem_turan`
 - **Forma Mimarlık için:** `http://127.0.0.1:5000/?office_code=forma_mimarlik`
 - **Kuzey Stüdyo için:** `http://127.0.0.1:5000/?office_code=kuzey_studyo`
 

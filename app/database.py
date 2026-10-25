@@ -182,6 +182,28 @@ def init_db():
             VALUES (?, ?, ?, ?)
         """, sample_slots)
 
+    # Sonradan eklenen uzmanlar: mevcut veritabanlarında da (yoksa) eklenir
+    later_experts = [
+        ("meltem_turan", "Meltem Turan", "Peyzaj Mimarı", "", "Ankara", json.dumps(["peyzaj"]), "Konut bahçeleri, teras, açık alan düzenleme", 1, None, 1, "/uzmanlar/meltem-turan", "/static/images/meltem_turan.png")
+    ]
+    for exp in later_experts:
+        cursor.execute("SELECT id FROM experts WHERE expert_code = ?", (exp[0],))
+        if cursor.fetchone():
+            continue
+        cursor.execute("""
+            INSERT INTO experts (expert_code, name, title, office_role, location, service_areas, specialties, is_independent, office_id, is_selectable_individually, profile_url, avatar_url)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, exp)
+        new_id = cursor.lastrowid
+        cursor.executemany("""
+            INSERT INTO available_slots (expert_id, office_id, slot_date, slot_time)
+            VALUES (?, ?, ?, ?)
+        """, [(new_id, None, d, t) for d, t in [
+            ("2026-10-06", "10:00"), ("2026-10-06", "11:30"),
+            ("2026-10-07", "14:00"), ("2026-10-07", "15:30"),
+            ("2026-10-08", "11:00"), ("2026-10-08", "16:00")
+        ]])
+
     conn.commit()
     conn.close()
 
